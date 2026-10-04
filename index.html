@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f4f1eb">
+    <meta name="description" content="Anonymous public and one-to-one chat on Strangely.">
+    <title>Strangely — Anonymous Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar" aria-label="Chat mode">
+            <a class="brand" href="#" aria-label="Strangely home"><span class="brand-mark">S</span><span class="brand-word">Strangely</span></a>
+            <div class="guest-note">
+                <span class="guest-avatar" id="guest-avatar">M</span>
+                <span class="guest-details"><strong id="guest-name">Guest</strong><small id="profile-summary">Profile not set</small></span>
+                <button class="edit-profile" id="edit-profile" type="button">Edit</button>
+            </div>
+
+            <div class="mode-label">Chat mode</div>
+            <nav class="mode-list" aria-label="Chat modes">
+                <button class="mode-button active" type="button" data-mode="room" aria-current="page">
+                    <span class="mode-icon">◉</span><span class="mode-copy"><strong>Public room</strong><small>Chat with everyone</small></span>
+                </button>
+                <button class="mode-button" type="button" data-mode="private" aria-current="false">
+                    <span class="mode-icon">↗</span><span class="mode-copy"><strong>One-to-one</strong><small>Private chat with one person</small></span>
+                </button>
+            </nav>
+
+            <div class="sidebar-bottom">
+                <div class="safety-note"><span class="safety-icon">!</span><p><strong>Stay safe</strong><br>Do not share your phone number, address, or payment details.</p></div>
+                <div class="privacy-line"><span class="lock-icon">⌑</span> No sign-up required</div>
+            </div>
+        </aside>
+
+        <main class="chat-panel">
+            <header class="chat-header">
+                <div class="room-heading">
+                    <span class="mobile-brand">S</span>
+                    <span class="heading-hash" id="room-mark">◉</span>
+                    <div><h1 id="room-title">Public room</h1><p id="room-description">Open chat for everyone.</p></div>
+                </div>
+                <div class="header-actions">
+                    <span class="active-count" id="active-count" aria-live="polite">0 active</span>
+                    <span class="service-status" id="service-status">CONNECTING...</span>
+                    <button class="small-action" id="next-chat" type="button" hidden>Next chat</button>
+                    <button class="small-action end-action" id="leave-chat" type="button" hidden>End chat</button>
+                </div>
+            </header>
+
+            <section class="conversation" id="conversation" aria-label="Chat messages" aria-live="polite">
+                <div class="empty-state" id="empty-state">
+                    <h2 id="empty-title">No messages yet.</h2>
+                    <p class="empty-copy" id="empty-copy">Messages in the public room are visible to everyone connected.</p>
+                </div>
+                <div class="private-greeting" id="private-greeting" hidden></div>
+                <div class="message-list" id="message-list"></div>
+                <div class="match-state" id="match-state" hidden>
+                    <h2 id="match-title">Find someone to chat with privately.</h2>
+                    <p id="match-copy">Choose who you would like to chat with. Gender is self-reported and not verified.</p>
+                    <div class="match-preference-control">
+                        <label for="match-preference">Connect me with</label>
+                        <select id="match-preference">
+                            <option value="any">Anyone</option>
+                            <option value="women">Women only</option>
+                        </select>
+                    </div>
+                    <div class="match-actions">
+                        <button class="back-to-room" type="button" id="find-match">Find a partner</button>
+                        <button class="cancel-match" type="button" id="cancel-match" hidden>Cancel search</button>
+                        <button class="back-to-room" type="button" id="back-to-room">Go to public room</button>
+                    </div>
+                </div>
+            </section>
+
+            <form class="composer" id="message-form">
+                <label class="sr-only" for="message-input">Write a message</label>
+                <textarea id="message-input" rows="1" maxlength="600" placeholder="Write a message..." required></textarea>
+                <div class="composer-footer">
+                    <span class="composer-hint" id="composer-hint">Connecting to server...</span>
+                    <div class="composer-controls"><span class="char-count" id="char-count">0 / 600</span><button class="send-button" type="submit" aria-label="Send message"><span>Send</span><span class="send-arrow">↑</span></button></div>
+                </div>
+            </form>
+            <footer class="chat-footer">Stay anonymous. Do not share your phone number, address, or payment details.</footer>
+        </main>
+    </div>
+    <dialog class="profile-dialog" id="profile-dialog" aria-labelledby="profile-title">
+        <form id="profile-form">
+            <h2 id="profile-title">Set up your profile</h2>
+            <p>Your profile is visible to chat participants. Adults 18+ only. Age and gender are self-reported and not verified.</p>
+            <label for="profile-gender">Gender</label>
+            <select id="profile-gender" name="gender" required>
+                <option value="">Select gender</option>
+                <option value="Woman">Woman</option>
+                <option value="Man">Man</option>
+                <option value="Non-binary">Non-binary</option>
+                <option value="Prefer not to say">Prefer not to say</option>
+            </select>
+            <label for="profile-age">Age</label>
+            <input id="profile-age" name="age" type="number" min="18" max="99" inputmode="numeric" placeholder="18 or older" required>
+            <label for="profile-country">Country</label>
+            <select id="profile-country" name="country" required>
+                <option value="India">India</option>
+            </select>
+            <button class="save-profile" type="submit">Save profile</button>
+        </form>
+    </dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="config.js"></script>
+    <script src="script.js" defer></script>
+</body>
+</html>

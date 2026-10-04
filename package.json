@@ -1,0 +1,13 @@
+{
+  "name": "strangely-chat",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "prepare:netlify": "node scripts/prepare-netlify.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}
