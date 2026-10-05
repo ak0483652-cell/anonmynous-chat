@@ -39,13 +39,25 @@ function readSessionProfile() {
 	return null;
 }
 
+function formatGenderLabel(gender) {
+	if (gender === "Man") return "Male";
+	if (gender === "Woman") return "Female";
+	return gender || "";
+}
+
 function profileLabel(value) {
 	if (!value) return "";
-	return `${value.gender} · ${value.age} · ${value.country}`;
+	return `${formatGenderLabel(value.gender)} · ${value.age} · ${value.country}`;
 }
 
 function updateProfileSummary() {
 	document.querySelector("#profile-summary").textContent = profile ? profileLabel(profile) : "Profile not set";
+	if (guestNameElement) {
+		guestNameElement.textContent = profile ? formatGenderLabel(profile.gender) : guestName;
+	}
+	if (guestAvatar) {
+		guestAvatar.textContent = profile ? (profile.gender === "Woman" ? "F" : profile.gender === "Man" ? "M" : "G") : guestName.slice(-1).toUpperCase();
+	}
 }
 
 function showToast(message) {
