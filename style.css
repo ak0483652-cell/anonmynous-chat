@@ -105,6 +105,10 @@ button { color: inherit; }
 .welcome-note p { margin: 0; color: #77857d; font-size: 11px; }
 .message-list { display: grid; align-content: start; gap: 22px; }
 .message { display: flex; align-items: flex-start; gap: 10px; animation: message-in .22s ease-out both; }
+.message.mine { flex-direction: row-reverse; }
+.message.mine .message-body { margin-left: auto; max-width: 75%; }
+.message.mine .message-meta { justify-content: flex-end; }
+.message.mine .message-text { text-align: right; }
 @keyframes message-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .message .avatar { width: 32px; height: 32px; }
 .message-body { min-width: 0; flex: 1; }
