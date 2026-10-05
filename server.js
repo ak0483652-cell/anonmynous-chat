@@ -23,6 +23,28 @@ function send(socket, message) {
 	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
 }
 
+// Cloudflare Turnstile token ko server par verify karta hai.
+// Secret Key sirf Render ke Environment variable TURNSTILE_SECRET mein rehti hai.
+async function verifyTurnstile(token) {
+	const secret = process.env.TURNSTILE_SECRET;
+	if (!secret) {
+		console.error("TURNSTILE_SECRET is not set on the server.");
+		return false;
+	}
+	try {
+		const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+			method: "POST",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({ secret, response: token })
+		});
+		const result = await response.json();
+		return result.success === true;
+	} catch (error) {
+		console.error("Turnstile verification request failed:", error);
+		return false;
+	}
+}
+
 function broadcastActiveCount() {
 	const message = { type: "active-count", count: clients.size };
 	for (const client of clients) send(client, message);
@@ -88,7 +110,7 @@ function endPrivateChat(socket) {
 	send(peer, { type: "partner-left" });
 }
 
-function handleMessage(socket, payload) {
+async function handleMessage(socket, payload) {
 	if (!payload || typeof payload !== "object" || typeof payload.type !== "string") return;
 
 	if (payload.type === "set-profile") {
@@ -98,6 +120,25 @@ function handleMessage(socket, payload) {
 			send(socket, { type: "error", message: "Select a valid gender, age 18 or older, and India as your country." });
 			return;
 		}
+
+		// Is connection par pehli baar profile set ho rahi hai to Turnstile verify zaroori hai.
+		if (!socket.verified) {
+			const token = payload.turnstileToken;
+			if (typeof token !== "string" || !token || token.length > 2048) {
+				send(socket, { type: "verify-failed", message: "Please complete the verification." });
+				return;
+			}
+			if (socket.verifying) return;
+			socket.verifying = true;
+			const ok = await verifyTurnstile(token);
+			socket.verifying = false;
+			if (!ok) {
+				send(socket, { type: "verify-failed", message: "Verification failed. Please try again." });
+				return;
+			}
+			socket.verified = true;
+		}
+
 		socket.profile = { gender: profile.gender, age: profile.age, country: profile.country.trim() };
 		send(socket, { type: "profile-saved", profile: socket.profile });
 		if (socket.peer) {
@@ -142,6 +183,10 @@ function handleMessage(socket, payload) {
 	}
 
 	if (payload.type === "find-partner") {
+		if (!socket.profile) {
+			send(socket, { type: "error", message: "Set up your profile before chatting." });
+			return;
+		}
 		if (payload.preference !== "any" && payload.preference !== "women") {
 			send(socket, { type: "error", message: "Choose a valid match preference." });
 			return;
@@ -197,7 +242,8 @@ const server = createServer(async (request, response) => {
 	}
 });
 
-const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: 2048 });
+// maxPayload 4096: Turnstile token 2048 characters tak ka ho sakta hai.
+const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: 4096 });
 server.on("upgrade", (request, socket, head) => {
 	if (new URL(request.url, "http://localhost").pathname !== "/ws") {
 		socket.destroy();
@@ -214,6 +260,8 @@ webSocketServer.on("connection", (socket) => {
 	socket.peer = null;
 	socket.matchId = null;
 	socket.profile = null;
+	socket.verified = false;
+	socket.verifying = false;
 	socket.matchPreference = "any";
 	socket.messageTimes = [];
 	clients.add(socket);
@@ -221,9 +269,9 @@ webSocketServer.on("connection", (socket) => {
 	send(socket, { type: "public-history", messages: publicHistory });
 	broadcastActiveCount();
 
-	socket.on("message", (data) => {
+	socket.on("message", async (data) => {
 		try {
-			handleMessage(socket, JSON.parse(data.toString()));
+			await handleMessage(socket, JSON.parse(data.toString()));
 		} catch {
 			send(socket, { type: "error", message: "Could not read that message." });
 		}
