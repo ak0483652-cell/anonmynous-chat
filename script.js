@@ -23,6 +23,8 @@ let peerProfile = null;
 let profile = readSessionProfile();
 let profileReady = false;
 let verified = false;
+let banned = false;
+const blockedUserIds = new Set();
 let guestName = `Guest-${Math.floor(100 + Math.random() * 900)}`;
 let socket;
 let reconnectTimer;
@@ -133,6 +135,18 @@ function renderMessage(message, isPrivate) {
 	senderProfile.className = "message-profile";
 	senderProfile.textContent = profileLabel(message.profile);
 	if (senderProfile.textContent) meta.append(senderProfile);
+	if (!isMine && !isPrivate && message.userId) {
+		const reportButton = document.createElement("button");
+		reportButton.type = "button";
+		reportButton.className = "report-link";
+		reportButton.textContent = "Report";
+		reportButton.title = "Report and block this person";
+		reportButton.addEventListener("click", () => {
+			if (!window.confirm(`Report ${message.name} and hide their messages?`)) return;
+			sendToServer({ type: "report", scope: "public", userId: message.userId });
+		});
+		meta.append(reportButton);
+	}
 
 	const text = document.createElement("p");
 	text.className = "message-text";
@@ -170,9 +184,10 @@ function showMode(mode) {
 	document.querySelector("#private-greeting").hidden = !isMatched;
 	document.querySelector("#next-chat").hidden = !isMatched;
 	document.querySelector("#leave-chat").hidden = !isMatched;
+	document.querySelector("#report-chat").hidden = !isMatched;
 	if (isRoom) {
 		messageList.replaceChildren();
-		publicMessages.forEach((message) => renderMessage(message, false));
+		publicMessages.filter((message) => !blockedUserIds.has(message.userId)).forEach((message) => renderMessage(message, false));
 		composerHint.textContent = "Everyone in the public room can see this message.";
 	} else if (isMatched) {
 		messageList.replaceChildren();
@@ -193,6 +208,18 @@ guestAvatar.textContent = guestName.slice(-1);
 updateProfileSummary();
 showMode(activeMode);
 if (!profile) profileDialog.showModal();
+
+function handleBanned(text) {
+	banned = true;
+	clearTimeout(reconnectTimer);
+	serviceStatus.textContent = "BANNED";
+	serviceStatus.dataset.state = "offline";
+	composerHint.textContent = text || "You are banned after reports from other users. Please try again later.";
+	messageInput.disabled = true;
+	messageForm.hidden = false;
+	if (profileDialog.open) profileDialog.close();
+	showToast(composerHint.textContent);
+}
 
 function connect() {
 	const configuredSocketUrl = window.STRANGELY_WS_URL?.trim() || "";
@@ -265,7 +292,7 @@ function connect() {
 		} else if (message.type === "public-message") {
 			publicMessages.push(message);
 			if (publicMessages.length > 100) publicMessages.shift();
-			if (activeMode === "room") {
+			if (activeMode === "room" && !blockedUserIds.has(message.userId)) {
 				renderMessage(message, false);
 				document.querySelector("#conversation").scrollTop = document.querySelector("#conversation").scrollHeight;
 			}
@@ -319,11 +346,21 @@ function connect() {
 			serviceStatus.textContent = "LIVE";
 			serviceStatus.dataset.state = "live";
 			if (activeMode === "private") showMode("private");
+		} else if (message.type === "report-received") {
+			if (message.scope === "public" && message.userId) {
+				blockedUserIds.add(message.userId);
+				if (activeMode === "room") showMode("room");
+			}
+			showToast("Reported and blocked. Thank you for keeping Strangely safe.");
+		} else if (message.type === "banned") {
+			handleBanned(message.message);
 		} else if (message.type === "error") {
 			showToast(message.message);
 		}
 	});
-	socket.addEventListener("close", () => {
+	socket.addEventListener("close", (event) => {
+		if (event.code === 4003) handleBanned();
+		if (banned) return;
 		serviceStatus.textContent = "RECONNECTING...";
 		serviceStatus.dataset.state = "offline";
 		privateState = "idle";
@@ -425,6 +462,10 @@ document.querySelector("#next-chat").addEventListener("click", () => {
 		showMode("private");
 	}
 });
+document.querySelector("#report-chat").addEventListener("click", () => {
+	if (!window.confirm("Report this person and end the chat? You will not be matched with them again.")) return;
+	sendToServer({ type: "report", scope: "private" });
+});
 document.querySelector("#leave-chat").addEventListener("click", () => {
 	sendToServer({ type: "leave-private" });
 	privateState = "idle";
@@ -434,4 +475,52 @@ document.querySelector("#back-to-room").addEventListener("click", () => {
 	if (privateState === "waiting") sendToServer({ type: "cancel-match" });
 	privateState = "idle";
 	showMode("room");
+});
+
+// ---------- Screenshot deterrents (best effort, browser mein pakka rokna mumkin nahi) ----------
+// Window se focus hatne par chat blur ho jata hai. Pasand na aaye to false kar do.
+const PROTECT_ON_BLUR = true;
+const conversationArea = document.querySelector("#conversation");
+let shieldTimer;
+
+function setPrivacyShield(on) {
+	document.body.classList.toggle("privacy-shield", on);
+}
+
+function flashPrivacyShield() {
+	setPrivacyShield(true);
+	clearTimeout(shieldTimer);
+	shieldTimer = setTimeout(() => setPrivacyShield(PROTECT_ON_BLUR && !document.hasFocus()), 1500);
+}
+
+document.addEventListener("keydown", (event) => {
+	const key = String(event.key || "").toLowerCase();
+	const windowsSnip = event.metaKey && event.shiftKey && key === "s";
+	const macShot = event.metaKey && event.shiftKey && ["3", "4", "5", "#", "$", "%"].includes(key);
+	if (windowsSnip || macShot) flashPrivacyShield();
+});
+
+document.addEventListener("keyup", (event) => {
+	if (event.key === "PrintScreen") {
+		flashPrivacyShield();
+		try {
+			navigator.clipboard.writeText(" ");
+		} catch {
+			// ignore
+		}
+		showToast("Screenshots are not allowed on Strangely.");
+	}
+});
+
+window.addEventListener("blur", () => {
+	if (PROTECT_ON_BLUR) setPrivacyShield(true);
+});
+window.addEventListener("focus", () => setPrivacyShield(false));
+document.addEventListener("visibilitychange", () => {
+	if (document.hidden) setPrivacyShield(true);
+	else setPrivacyShield(PROTECT_ON_BLUR && !document.hasFocus());
+});
+
+["contextmenu", "copy", "cut", "dragstart"].forEach((name) => {
+	conversationArea.addEventListener(name, (event) => event.preventDefault());
 });
