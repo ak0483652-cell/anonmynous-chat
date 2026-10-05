@@ -8,6 +8,13 @@
     <title>Strangely — Anonymous Chat</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <style>
+        .report-link { margin-left: auto; padding: 0 4px; border: 0; background: none; color: inherit; opacity: 0.45; font: inherit; font-size: 0.75rem; cursor: pointer; text-decoration: underline; }
+        .report-link:hover, .report-link:focus-visible { opacity: 1; color: #b3261e; }
+        #conversation { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        .privacy-shield #conversation, .privacy-shield .composer { filter: blur(16px); pointer-events: none; }
+        @media print { body { display: none !important; } }
+    </style>
 </head>
 <body>
     <div class="app-shell">
@@ -46,6 +53,7 @@
                     <span class="active-count" id="active-count" aria-live="polite">0 active</span>
                     <span class="service-status" id="service-status">CONNECTING...</span>
                     <button class="small-action" id="next-chat" type="button" hidden>Next chat</button>
+                    <button class="small-action end-action" id="report-chat" type="button" hidden>Report</button>
                     <button class="small-action end-action" id="leave-chat" type="button" hidden>End chat</button>
                 </div>
             </header>
@@ -105,7 +113,7 @@
                 <option value="India">India</option>
             </select>
             <!-- Cloudflare Turnstile: YOUR_SITE_KEY ki jagah apni Site Key paste karo -->
-            <div class="cf-turnstile" data-sitekey="0x4AAAAAAFOP50vz-8hw65lK" data-theme="light"></div>
+            <div class="cf-turnstile" data-sitekey="YOUR_SITE_KEY" data-theme="light"></div>
             <button class="save-profile" type="submit">Save profile</button>
         </form>
     </dialog>
