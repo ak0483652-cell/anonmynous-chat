@@ -22,12 +22,38 @@ let peerUserId = "";
 let peerProfile = null;
 let profile = readSessionProfile();
 let profileReady = false;
+let verified = false;
 let guestName = `Guest-${Math.floor(100 + Math.random() * 900)}`;
 let socket;
 let reconnectTimer;
 let toastTimer;
 
 document.querySelector("#profile-country").value = "India";
+
+function getTurnstileToken() {
+	try {
+		return window.turnstile ? window.turnstile.getResponse() || "" : "";
+	} catch {
+		return "";
+	}
+}
+
+function resetTurnstile() {
+	try {
+		if (window.turnstile) window.turnstile.reset();
+	} catch {
+		// ignore
+	}
+}
+
+function openProfileDialog() {
+	if (profile) {
+		document.querySelector("#profile-gender").value = profile.gender;
+		document.querySelector("#profile-age").value = profile.age;
+		document.querySelector("#profile-country").value = profile.country;
+	}
+	if (!profileDialog.open) profileDialog.showModal();
+}
 
 function readSessionProfile() {
 	try {
@@ -71,7 +97,7 @@ function showToast(message) {
 function sendToServer(message) {
 	if (message.type !== "set-profile" && !profileReady) {
 		showToast("Set up your profile before chatting.");
-		profileDialog.showModal();
+		openProfileDialog();
 		return false;
 	}
 	if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -208,14 +234,31 @@ function connect() {
 			guestAvatar.textContent = guestName.slice(-1);
 			serviceStatus.textContent = "LIVE";
 			serviceStatus.dataset.state = "live";
-			if (profile) sendToServer({ type: "set-profile", profile });
-			else profileDialog.showModal();
+			if (profile) {
+				// Saved profile hai: Turnstile token mil jaye to seedha bhejo, warna dialog kholo.
+				const token = getTurnstileToken();
+				if (token) {
+					sendToServer({ type: "set-profile", profile, turnstileToken: token });
+					resetTurnstile();
+				} else {
+					openProfileDialog();
+				}
+			} else {
+				profileDialog.showModal();
+			}
 		} else if (message.type === "profile-saved") {
 			profile = message.profile;
 			profileReady = true;
+			verified = true;
 			sessionStorage.setItem("strangely-profile", JSON.stringify(profile));
 			updateProfileSummary();
 			composerHint.textContent = activeMode === "room" ? "Everyone in the public room can see this message." : "Find a match to start a private chat.";
+		} else if (message.type === "verify-failed") {
+			verified = false;
+			profileReady = false;
+			resetTurnstile();
+			showToast(message.message || "Verification failed. Please try again.");
+			openProfileDialog();
 		} else if (message.type === "public-history") {
 			publicMessages.splice(0, publicMessages.length, ...message.messages);
 			if (activeMode === "room") showMode("room");
@@ -249,8 +292,8 @@ function connect() {
 			document.querySelector("#private-greeting").hidden = false;
 			document.querySelector("#match-title").textContent = "Find someone to chat with privately.";
 			document.querySelector("#match-copy").textContent = "Choose who you would like to chat with. Gender is self-reported and not verified.";
-		document.querySelector("#find-match").hidden = false;
-		document.querySelector("#cancel-match").hidden = true;
+			document.querySelector("#find-match").hidden = false;
+			document.querySelector("#cancel-match").hidden = true;
 			serviceStatus.textContent = "PRIVATE CHAT";
 			serviceStatus.dataset.state = "live";
 			showMode("private");
@@ -285,6 +328,7 @@ function connect() {
 		serviceStatus.dataset.state = "offline";
 		privateState = "idle";
 		profileReady = false;
+		verified = false;
 		if (activeMode === "private") showMode("private");
 		reconnectTimer = setTimeout(connect, 2000);
 	});
@@ -294,17 +338,20 @@ function connect() {
 connect();
 
 document.querySelector("#edit-profile").addEventListener("click", () => {
-	if (profile) {
-		document.querySelector("#profile-gender").value = profile.gender;
-		document.querySelector("#profile-age").value = profile.age;
-		document.querySelector("#profile-country").value = profile.country;
-	}
-	profileDialog.showModal();
+	openProfileDialog();
 });
 
 profileForm.addEventListener("submit", (event) => {
 	event.preventDefault();
 	if (!profileForm.reportValidity()) return;
+
+	// Is connection par verify nahi hua hai to Turnstile token zaroori hai.
+	const token = getTurnstileToken();
+	if (!verified && !token) {
+		showToast("Please complete the verification first.");
+		return;
+	}
+
 	profile = {
 		gender: document.querySelector("#profile-gender").value,
 		age: Number(document.querySelector("#profile-age").value),
@@ -314,7 +361,8 @@ profileForm.addEventListener("submit", (event) => {
 	sessionStorage.setItem("strangely-profile", JSON.stringify(profile));
 	updateProfileSummary();
 	profileDialog.close();
-	sendToServer({ type: "set-profile", profile });
+	sendToServer({ type: "set-profile", profile, turnstileToken: token });
+	if (token) resetTurnstile();
 });
 
 modeButtons.forEach((button) => {
