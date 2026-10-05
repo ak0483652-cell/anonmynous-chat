@@ -66,6 +66,7 @@ function acceptsGender(socket, gender) {
 }
 
 function canMatch(first, second) {
+	if (first.blockedIps.has(second.ip) || second.blockedIps.has(first.ip)) return false;
 	return first.profile && second.profile && acceptsGender(first, second.profile.gender) && acceptsGender(second, first.profile.gender);
 }
 
@@ -109,6 +110,125 @@ function endPrivateChat(socket) {
 	peer.matchId = null;
 	send(peer, { type: "partner-left" });
 }
+
+// ---------- Report / Block / Ban ----------
+// Kitne alag-alag logon (alag IP) ke report par ban lagega. Render ke Environment mein REPORT_THRESHOLD se badal sakte ho.
+const REPORT_THRESHOLD = Number(process.env.REPORT_THRESHOLD) > 0 ? Number(process.env.REPORT_THRESHOLD) : 3;
+const REPORT_WINDOW_MS = 30 * 60 * 1000;
+// Pehla ban 1 ghanta, doosra 24 ghante, teesra aur uske baad 7 din.
+const BAN_STEPS_MS = [60 * 60 * 1000, 24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000];
+// Render jaise proxy ke peeche asli IP X-Forwarded-For mein proxy se theek pehle hota hai.
+// (Pehli entry koi bhi fake kar sakta hai, isliye wo use nahi karte.)
+const PROXY_HOPS = Number.isInteger(Number(process.env.PROXY_HOPS)) && Number(process.env.PROXY_HOPS) >= 0 ? Number(process.env.PROXY_HOPS) : 1;
+const bans = new Map(); // ip -> { until, count }
+const reportsAgainst = new Map(); // ip -> Map(reporterIp -> time)
+const recentUsers = new Map(); // userId -> { ip, seenAt } (jo abhi disconnect hue)
+
+function getClientIp(request) {
+	const forwarded = String(request.headers["x-forwarded-for"] || "").split(",").map((part) => part.trim()).filter(Boolean);
+	if (forwarded.length > 0) return forwarded[Math.max(0, forwarded.length - 1 - PROXY_HOPS)];
+	return request.socket.remoteAddress || "unknown";
+}
+
+function getActiveBan(ip) {
+	const entry = bans.get(ip);
+	return entry && entry.until > Date.now() ? entry : null;
+}
+
+function describeDuration(ms) {
+	const minutes = Math.max(1, Math.ceil(ms / 60000));
+	if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+	const hours = Math.ceil(minutes / 60);
+	if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"}`;
+	return `${Math.ceil(hours / 24)} days`;
+}
+
+function sendBanned(socket, entry) {
+	send(socket, { type: "banned", until: entry.until, message: `You are banned for ${describeDuration(entry.until - Date.now())} after reports from other users.` });
+	socket.close(4003, "banned");
+}
+
+function banIp(ip) {
+	const previous = bans.get(ip);
+	const count = previous ? previous.count : 0;
+	const entry = { until: Date.now() + BAN_STEPS_MS[Math.min(count, BAN_STEPS_MS.length - 1)], count: count + 1 };
+	bans.set(ip, entry);
+	reportsAgainst.delete(ip);
+	for (const client of [...clients]) {
+		if (client.ip === ip) sendBanned(client, entry);
+	}
+	console.log(`A user was banned (offence #${entry.count}).`);
+}
+
+function findUserIp(userId) {
+	for (const client of clients) {
+		if (client.userId === userId) return client.ip;
+	}
+	const recent = recentUsers.get(userId);
+	return recent ? recent.ip : null;
+}
+
+function handleReport(socket, payload) {
+	const now = Date.now();
+	socket.reportTimes = socket.reportTimes.filter((at) => now - at < 10 * 60 * 1000);
+	if (socket.reportTimes.length >= 5) {
+		send(socket, { type: "error", message: "Too many reports. Please try again later." });
+		return;
+	}
+
+	let target = null;
+	if (payload.scope === "private") {
+		if (!socket.peer) return;
+		target = { userId: socket.peer.userId, ip: socket.peer.ip };
+	} else if (payload.scope === "public") {
+		const userId = typeof payload.userId === "string" ? payload.userId : "";
+		// Sirf unhi ko report kar sakte ho jinka message public room mein abhi dikh raha hai.
+		if (!userId || userId === socket.userId || !publicHistory.some((message) => message.userId === userId)) {
+			send(socket, { type: "error", message: "Could not report that message." });
+			return;
+		}
+		target = { userId, ip: findUserIp(userId) };
+	} else {
+		return;
+	}
+
+	socket.reportTimes.push(now);
+	if (target.ip && target.ip !== socket.ip) {
+		// Block: ye banda is user ko dobara match nahi hoga aur uske public message nahi dikhenge.
+		socket.blockedIps.add(target.ip);
+		// Report: alag-alag IP se REPORT_THRESHOLD reports aane par ban.
+		const reporters = reportsAgainst.get(target.ip) || new Map();
+		for (const [reporterIp, at] of reporters) {
+			if (now - at > REPORT_WINDOW_MS) reporters.delete(reporterIp);
+		}
+		reporters.set(socket.ip, now);
+		reportsAgainst.set(target.ip, reporters);
+		if (reporters.size >= REPORT_THRESHOLD) banIp(target.ip);
+	}
+
+	if (payload.scope === "private") {
+		endPrivateChat(socket);
+		send(socket, { type: "private-left" });
+	}
+	send(socket, { type: "report-received", scope: payload.scope, userId: target.userId });
+}
+
+function pruneModerationData() {
+	const now = Date.now();
+	for (const [userId, info] of recentUsers) {
+		if (now - info.seenAt > 15 * 60 * 1000) recentUsers.delete(userId);
+	}
+	for (const [ip, reporters] of reportsAgainst) {
+		for (const [reporterIp, at] of reporters) {
+			if (now - at > REPORT_WINDOW_MS) reporters.delete(reporterIp);
+		}
+		if (reporters.size === 0) reportsAgainst.delete(ip);
+	}
+	for (const [ip, entry] of bans) {
+		if (now - entry.until > 7 * 24 * 60 * 60 * 1000) bans.delete(ip);
+	}
+}
+// ---------- End report / block / ban ----------
 
 async function handleMessage(socket, payload) {
 	if (!payload || typeof payload !== "object" || typeof payload.type !== "string") return;
@@ -174,11 +294,22 @@ async function handleMessage(socket, payload) {
 		if (payload.type === "public-message") {
 			publicHistory.push(message);
 			if (publicHistory.length > 100) publicHistory.shift();
-			for (const client of clients) send(client, message);
+			for (const client of clients) {
+				if (!client.blockedIps.has(socket.ip)) send(client, message);
+			}
 		} else if (socket.peer && socket.matchId) {
 			send(socket.peer, message);
 			send(socket, message);
 		}
+		return;
+	}
+
+	if (payload.type === "report") {
+		if (!socket.profile) {
+			send(socket, { type: "error", message: "Set up your profile before chatting." });
+			return;
+		}
+		handleReport(socket, payload);
 		return;
 	}
 
@@ -254,7 +385,15 @@ server.on("upgrade", (request, socket, head) => {
 	});
 });
 
-webSocketServer.on("connection", (socket) => {
+webSocketServer.on("connection", (socket, request) => {
+	socket.ip = getClientIp(request);
+	const activeBan = getActiveBan(socket.ip);
+	if (activeBan) {
+		sendBanned(socket, activeBan);
+		return;
+	}
+	socket.blockedIps = new Set();
+	socket.reportTimes = [];
 	socket.userId = randomUUID();
 	socket.guestName = `Guest-${Math.floor(100 + Math.random() * 900)}`;
 	socket.peer = null;
@@ -278,6 +417,7 @@ webSocketServer.on("connection", (socket) => {
 	});
 
 	socket.on("close", () => {
+		recentUsers.set(socket.userId, { ip: socket.ip, seenAt: Date.now() });
 		clients.delete(socket);
 		removeFromQueue(socket);
 		endPrivateChat(socket);
@@ -286,6 +426,7 @@ webSocketServer.on("connection", (socket) => {
 });
 
 setInterval(clearPublicHistory, publicHistoryClearMs);
+setInterval(pruneModerationData, 5 * 60 * 1000);
 
 server.listen(port, "0.0.0.0", () => {
 	console.log(`Strangely is running at http://localhost:${port}`);
