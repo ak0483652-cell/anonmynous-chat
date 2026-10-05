@@ -10,6 +10,9 @@ const port = Number(process.env.PORT || 3000);
 const clients = new Set();
 const waitingGuests = [];
 const publicHistory = [];
+const publicHistoryClearMs = Number.isFinite(Number(process.env.PUBLIC_HISTORY_CLEAR_MS)) && Number(process.env.PUBLIC_HISTORY_CLEAR_MS) > 0
+	? Number(process.env.PUBLIC_HISTORY_CLEAR_MS)
+	: 3 * 60 * 1000;
 const contentTypes = {
 	".css": "text/css; charset=utf-8",
 	".html": "text/html; charset=utf-8",
@@ -23,6 +26,12 @@ function send(socket, message) {
 function broadcastActiveCount() {
 	const message = { type: "active-count", count: clients.size };
 	for (const client of clients) send(client, message);
+}
+
+function clearPublicHistory() {
+	if (publicHistory.length === 0) return;
+	publicHistory.length = 0;
+	for (const client of clients) send(client, { type: "public-history", messages: [] });
 }
 
 function removeFromQueue(socket) {
@@ -227,6 +236,8 @@ webSocketServer.on("connection", (socket) => {
 		broadcastActiveCount();
 	});
 });
+
+setInterval(clearPublicHistory, publicHistoryClearMs);
 
 server.listen(port, "0.0.0.0", () => {
 	console.log(`Strangely is running at http://localhost:${port}`);
