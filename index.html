@@ -7,6 +7,7 @@
     <meta name="description" content="Anonymous public and one-to-one chat on Strangely.">
     <title>Strangely — Anonymous Chat</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
 <body>
     <div class="app-shell">
@@ -103,6 +104,8 @@
             <select id="profile-country" name="country" required>
                 <option value="India">India</option>
             </select>
+            <!-- Cloudflare Turnstile: YOUR_SITE_KEY ki jagah apni Site Key paste karo -->
+            <div class="cf-turnstile" data-sitekey="0x4AAAAAAFOP50vz-8hw65lK" data-theme="light"></div>
             <button class="save-profile" type="submit">Save profile</button>
         </form>
     </dialog>
