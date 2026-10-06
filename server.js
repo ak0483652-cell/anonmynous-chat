@@ -307,15 +307,43 @@ function startAisha(socket, auto = false) {
 		: "Hii 😊 Main ek AI saathi hoon, asli insaan nahi. Aaj ka din kaisa raha?");
 }
 
-// Agar koi model Groq par band ho jaye (404 ya 400), to server khud agla model try karta hai.
-const GROQ_FALLBACK_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+// Agar koi model Groq par band ho jaye ya key ko uska access na ho (404 ya 400), to server khud agla model try karta hai.
+// Akhir mein Groq se poochta hai ki is key ko kaunse models milte hain, aur unmein se chalata hai.
+const GROQ_FALLBACK_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-20b", "openai/gpt-oss-120b"];
+const GROQ_MODELS_URL = process.env.GROQ_MODELS_URL || GROQ_API_URL.replace(/\/chat\/completions\/?$/, "/models");
 let groqWorkingModel = "";
+let groqDiscovered = [];
+let groqDiscoveredAt = 0;
+
+async function discoverGroqModels() {
+	if (Date.now() - groqDiscoveredAt < 10 * 60 * 1000) return groqDiscovered;
+	groqDiscoveredAt = Date.now();
+	try {
+		const response = await fetch(GROQ_MODELS_URL, { headers: { authorization: `Bearer ${GROQ_API_KEY}` }, signal: AbortSignal.timeout(10000) });
+		if (!response.ok) throw new Error(`status ${response.status}`);
+		const data = await response.json();
+		const ids = (Array.isArray(data?.data) ? data.data : []).map((model) => model.id).filter(Boolean);
+		console.log(`Groq models available to this API key: ${ids.join(", ") || "none"}`);
+		const notChat = /(whisper|tts|playai|guard|embed|safeguard|orpheus)/i;
+		const rank = (id) => {
+			const index = GROQ_FALLBACK_MODELS.indexOf(id);
+			return index === -1 ? 100 : index;
+		};
+		groqDiscovered = ids.filter((id) => !notChat.test(id)).sort((a, b) => rank(a) - rank(b));
+	} catch (error) {
+		console.error(`Could not list Groq models: ${error.message}`);
+		groqDiscovered = [];
+	}
+	return groqDiscovered;
+}
 
 async function callGroqModel(model, messages) {
+	// gpt-oss jaise reasoning models pehle "sochte" hain, isliye unhe zyada token chahiye.
+	const maxTokens = /gpt-oss|qwen3|deepseek-r1/i.test(model) ? 800 : 180;
 	const response = await fetch(GROQ_API_URL, {
 		method: "POST",
 		headers: { "content-type": "application/json", authorization: `Bearer ${GROQ_API_KEY}` },
-		body: JSON.stringify({ model, messages, temperature: 0.85, max_completion_tokens: 180 }),
+		body: JSON.stringify({ model, messages, temperature: 0.85, max_completion_tokens: maxTokens }),
 		signal: AbortSignal.timeout(15000)
 	});
 	if (!response.ok) {
@@ -326,25 +354,38 @@ async function callGroqModel(model, messages) {
 		throw error;
 	}
 	const data = await response.json();
-	return String(data?.choices?.[0]?.message?.content || "").trim();
+	// Kuch reasoning models <think>...</think> likhte hain, wo user ko nahi dikhana.
+	return String(data?.choices?.[0]?.message?.content || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
 
 async function callGroq(messages) {
-	const candidates = [...new Set([groqWorkingModel, GROQ_MODEL, ...GROQ_FALLBACK_MODELS].filter(Boolean))];
+	const tried = new Set();
 	let lastError;
-	for (const model of candidates) {
+	const attempt = async (model) => {
+		tried.add(model);
 		try {
 			const text = await callGroqModel(model, messages);
 			if (groqWorkingModel !== model) {
 				groqWorkingModel = model;
 				console.log(`AI is using Groq model "${model}".`);
 			}
-			return text;
+			return { ok: true, text };
 		} catch (error) {
 			lastError = error;
 			if (error.status !== 404 && error.status !== 400) throw error;
 			console.error(`AI model not usable, trying the next one. ${error.message}`);
+			return { ok: false };
 		}
+	};
+
+	for (const model of [...new Set([groqWorkingModel, GROQ_MODEL, ...GROQ_FALLBACK_MODELS].filter(Boolean))]) {
+		const result = await attempt(model);
+		if (result.ok) return result.text;
+	}
+	for (const model of await discoverGroqModels()) {
+		if (tried.has(model)) continue;
+		const result = await attempt(model);
+		if (result.ok) return result.text;
 	}
 	throw lastError;
 }
