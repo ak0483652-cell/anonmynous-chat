@@ -24,6 +24,8 @@ let profile = readSessionProfile();
 let profileReady = false;
 let verified = false;
 let banned = false;
+let aiEnabled = false;
+let peerIsAi = false;
 const blockedUserIds = new Set();
 let guestName = `Guest-${Math.floor(100 + Math.random() * 900)}`;
 let socket;
@@ -117,7 +119,8 @@ function renderMessage(message, isPrivate) {
 
 	const avatar = document.createElement("div");
 	avatar.className = `avatar ${isMine ? "avatar-you" : "avatar-chat"}`;
-	avatar.textContent = isMine ? "ME" : message.name.slice(-2).toUpperCase();
+	avatar.textContent = isMine ? "ME" : message.ai ? "AI" : message.name.slice(-2).toUpperCase();
+	if (message.ai) item.classList.add("ai-message");
 	avatar.setAttribute("aria-hidden", "true");
 
 	const body = document.createElement("div");
@@ -184,7 +187,9 @@ function showMode(mode) {
 	document.querySelector("#private-greeting").hidden = !isMatched;
 	document.querySelector("#next-chat").hidden = !isMatched;
 	document.querySelector("#leave-chat").hidden = !isMatched;
-	document.querySelector("#report-chat").hidden = !isMatched;
+	document.querySelector("#report-chat").hidden = !isMatched || peerIsAi;
+	document.querySelector("#ai-offer").hidden = !aiEnabled;
+	document.querySelector("#ai-badge").hidden = !(isMatched && peerIsAi);
 	if (isRoom) {
 		messageList.replaceChildren();
 		publicMessages.filter((message) => !blockedUserIds.has(message.userId)).forEach((message) => renderMessage(message, false));
@@ -192,7 +197,7 @@ function showMode(mode) {
 	} else if (isMatched) {
 		messageList.replaceChildren();
 		privateMessages.forEach((message) => renderMessage(message, true));
-		composerHint.textContent = "This private chat is visible only to you and your match.";
+		composerHint.textContent = peerIsAi ? "You are talking to an AI, not a real person." : "This private chat is visible only to you and your match.";
 	} else {
 		composerHint.textContent = "Find a match to start a private chat.";
 	}
@@ -257,6 +262,8 @@ function connect() {
 			activeCount.textContent = `${count} active`;
 		} else if (message.type === "ready") {
 			guestName = message.guestName;
+			aiEnabled = Boolean(message.aiEnabled);
+			document.querySelector("#ai-offer").hidden = !aiEnabled;
 			guestNameElement.textContent = guestName;
 			guestAvatar.textContent = guestName.slice(-1);
 			serviceStatus.textContent = "LIVE";
@@ -309,6 +316,7 @@ function connect() {
 			showMode("private");
 		} else if (message.type === "matched") {
 			privateState = "matched";
+			peerIsAi = false;
 			matchPreference.disabled = true;
 			peerName = message.peerName;
 			peerUserId = message.peerUserId;
@@ -335,6 +343,7 @@ function connect() {
 			}
 		} else if (["partner-left", "private-left", "match-cancelled"].includes(message.type)) {
 			privateState = "idle";
+			peerIsAi = false;
 			matchPreference.disabled = false;
 			peerName = "";
 			matchState.classList.remove("is-waiting");
@@ -346,6 +355,29 @@ function connect() {
 			serviceStatus.textContent = "LIVE";
 			serviceStatus.dataset.state = "live";
 			if (activeMode === "private") showMode("private");
+		} else if (message.type === "ai-matched") {
+			privateState = "matched";
+			peerIsAi = true;
+			matchPreference.disabled = true;
+			peerName = message.name || "AI";
+			peerUserId = "aisha-ai";
+			peerProfile = null;
+			matchState.classList.remove("is-waiting");
+			privateMessages.length = 0;
+			document.querySelector("#private-greeting").textContent = message.auto
+				? 'You were matched with an AI, not a real person. Tap "Next chat" to find a real person.'
+				: "You are chatting with an AI, not a real person.";
+			if (message.auto) showToast("You are chatting with an AI, not a real person. Tap Next chat to find a real person.");
+			document.querySelector("#private-greeting").hidden = false;
+			document.querySelector("#match-title").textContent = "Find someone to chat with privately.";
+			document.querySelector("#match-copy").textContent = "Choose who you would like to chat with. Gender is self-reported and not verified.";
+			document.querySelector("#find-match").hidden = false;
+			document.querySelector("#cancel-match").hidden = true;
+			serviceStatus.textContent = "AI CHAT";
+			serviceStatus.dataset.state = "live";
+			showMode("private");
+		} else if (message.type === "ai-typing") {
+			if (activeMode === "private" && peerIsAi) composerHint.textContent = message.on ? "AI is typing..." : "You are talking to an AI, not a real person.";
 		} else if (message.type === "report-received") {
 			if (message.scope === "public" && message.userId) {
 				blockedUserIds.add(message.userId);
@@ -450,6 +482,7 @@ document.querySelector("#find-match").addEventListener("click", () => {
 });
 
 document.querySelector("#cancel-match").addEventListener("click", () => sendToServer({ type: "cancel-match" }));
+document.querySelector("#start-ai").addEventListener("click", () => sendToServer({ type: "start-ai" }));
 document.querySelector("#next-chat").addEventListener("click", () => {
 	if (sendToServer({ type: "next-partner", preference: matchPreference.value })) {
 		privateState = "waiting";
