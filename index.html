@@ -14,6 +14,10 @@
         #conversation { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
         .privacy-shield #conversation, .privacy-shield .composer { filter: blur(16px); pointer-events: none; }
         @media print { body { display: none !important; } }
+        .ai-offer { margin-top: 14px; }
+        .ai-note { margin: 8px 0 0; font-size: 0.8rem; opacity: 0.7; }
+        .ai-message .message-name { color: #7a4cc2; font-weight: 700; }
+        .ai-badge { padding: 3px 9px; border-radius: 999px; background: #7a4cc2; color: #fff; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
     </style>
 </head>
 <body>
@@ -51,6 +55,7 @@
                 </div>
                 <div class="header-actions">
                     <span class="active-count" id="active-count" aria-live="polite">0 active</span>
+                    <span class="ai-badge" id="ai-badge" hidden></span>
                     <span class="service-status" id="service-status">CONNECTING...</span>
                     <button class="small-action" id="next-chat" type="button" hidden>Next chat</button>
                     <button class="small-action end-action" id="report-chat" type="button" hidden>Report</button>
@@ -79,6 +84,9 @@
                         <button class="back-to-room" type="button" id="find-match">Find a partner</button>
                         <button class="cancel-match" type="button" id="cancel-match" hidden>Cancel search</button>
                         <button class="back-to-room" type="button" id="back-to-room">Go to public room</button>
+                    </div>
+                    <div class="ai-offer" id="ai-offer" hidden>
+                        <button class="back-to-room" type="button" id="start-ai">Chat</button>
                     </div>
                 </div>
             </section>
@@ -113,7 +121,7 @@
                 <option value="India">India</option>
             </select>
             <!-- Cloudflare Turnstile: YOUR_SITE_KEY ki jagah apni Site Key paste karo -->
-            <div class="cf-turnstile" data-sitekey="0x4AAAAAAFOP50vz-8hw65lK" data-theme="light"></div>
+            <div class="cf-turnstile" data-sitekey="YOUR_SITE_KEY" data-theme="light"></div>
             <button class="save-profile" type="submit">Save profile</button>
         </form>
     </dialog>
