@@ -307,16 +307,46 @@ function startAisha(socket, auto = false) {
 		: "Hii 😊 Main ek AI saathi hoon, asli insaan nahi. Aaj ka din kaisa raha?");
 }
 
-async function callGroq(messages) {
+// Agar koi model Groq par band ho jaye (404 ya 400), to server khud agla model try karta hai.
+const GROQ_FALLBACK_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+let groqWorkingModel = "";
+
+async function callGroqModel(model, messages) {
 	const response = await fetch(GROQ_API_URL, {
 		method: "POST",
 		headers: { "content-type": "application/json", authorization: `Bearer ${GROQ_API_KEY}` },
-		body: JSON.stringify({ model: GROQ_MODEL, messages, temperature: 0.85, max_completion_tokens: 180 }),
+		body: JSON.stringify({ model, messages, temperature: 0.85, max_completion_tokens: 180 }),
 		signal: AbortSignal.timeout(15000)
 	});
-	if (!response.ok) throw new Error(`Groq returned status ${response.status}`);
+	if (!response.ok) {
+		// Render ke Logs mein asli wajah dikhane ke liye Groq ka error text (chhota sa hissa) saath jodte hain.
+		const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 300);
+		const error = new Error(`Groq returned status ${response.status} for model "${model}": ${detail}`);
+		error.status = response.status;
+		throw error;
+	}
 	const data = await response.json();
 	return String(data?.choices?.[0]?.message?.content || "").trim();
+}
+
+async function callGroq(messages) {
+	const candidates = [...new Set([groqWorkingModel, GROQ_MODEL, ...GROQ_FALLBACK_MODELS].filter(Boolean))];
+	let lastError;
+	for (const model of candidates) {
+		try {
+			const text = await callGroqModel(model, messages);
+			if (groqWorkingModel !== model) {
+				groqWorkingModel = model;
+				console.log(`AI is using Groq model "${model}".`);
+			}
+			return text;
+		} catch (error) {
+			lastError = error;
+			if (error.status !== 404 && error.status !== 400) throw error;
+			console.error(`AI model not usable, trying the next one. ${error.message}`);
+		}
+	}
+	throw lastError;
 }
 
 async function handleAiMessage(socket, text) {
@@ -350,7 +380,7 @@ async function handleAiMessage(socket, text) {
 		aiCallsToday = 0;
 	}
 	if (aiCallsToday >= AI_DAILY_LIMIT) {
-		sendAisha(socket, "Aisha aaj ke liye thak gayi hai 😴 Kal milte hain. Kisi insaan se baat karni ho to Next chat dabao.");
+		sendAisha(socket, "AI aaj ke liye thak gaya hai 😴 Kal milte hain. Kisi insaan se baat karni ho to Next chat dabao.");
 		return;
 	}
 
@@ -365,7 +395,7 @@ async function handleAiMessage(socket, text) {
 	try {
 		reply = await callGroq([{ role: "system", content: AISHA_PROMPT + (ai.safeMode ? AISHA_SAFE_MODE : "") }, ...ai.history]);
 	} catch (error) {
-		console.error("Aisha request failed:", error.message);
+		console.error("AI request failed:", error.message);
 	}
 	ai.busy = false;
 	send(socket, { type: "ai-typing", on: false });
@@ -373,7 +403,7 @@ async function handleAiMessage(socket, text) {
 
 	if (!reply) {
 		ai.history.pop();
-		sendAisha(socket, "Aisha ka network thoda slow hai 🌙 Thodi der baad dobara likho?");
+		sendAisha(socket, "AI ka network abhi thoda slow hai 🌙 Thodi der baad dobara likho?");
 		return;
 	}
 	if (AI_EXPLICIT_OUTPUT.test(reply)) reply = "Haha, itni jaldi nahi 😄 Kuch aur batao na?";
@@ -522,7 +552,7 @@ const server = createServer(async (request, response) => {
 	const pathname = new URL(request.url, "http://localhost").pathname;
 	if (pathname === "/health") {
 		response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-		response.end(JSON.stringify({ status: "ok", online: clients.size }));
+		response.end(JSON.stringify({ status: "ok", online: clients.size, ai: aiEnabled }));
 		return;
 	}
 
