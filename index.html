@@ -2,23 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#f4f1eb">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#eaf0fb">
     <meta name="description" content="Anonymous public and one-to-one chat on Strangely.">
     <title>Strangely — Anonymous Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
     <link rel="stylesheet" href="style.css">
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
-    <style>
-        .report-link { margin-left: auto; padding: 0 4px; border: 0; background: none; color: inherit; opacity: 0.45; font: inherit; font-size: 0.75rem; cursor: pointer; text-decoration: underline; }
-        .report-link:hover, .report-link:focus-visible { opacity: 1; color: #b3261e; }
-        #conversation { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-        .privacy-shield #conversation, .privacy-shield .composer { filter: blur(16px); pointer-events: none; }
-        @media print { body { display: none !important; } }
-        .ai-offer { margin-top: 14px; }
-        .ai-note { margin: 8px 0 0; font-size: 0.8rem; opacity: 0.7; }
-        .ai-message .message-name { color: #7a4cc2; font-weight: 700; }
-        .ai-badge { padding: 3px 9px; border-radius: 999px; background: #7a4cc2; color: #fff; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
-    </style>
 </head>
 <body>
     <div class="app-shell">
@@ -33,10 +25,10 @@
             <div class="mode-label">Chat mode</div>
             <nav class="mode-list" aria-label="Chat modes">
                 <button class="mode-button active" type="button" data-mode="room" aria-current="page">
-                    <span class="mode-icon">◉</span><span class="mode-copy"><strong>Public room</strong><small>Chat with everyone</small></span>
+                    <span class="mode-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14.5c2.3.2 4 1.8 4.5 4.5"/></svg></span><span class="mode-copy"><strong>Public room</strong><small>Chat with everyone</small></span>
                 </button>
                 <button class="mode-button" type="button" data-mode="private" aria-current="false">
-                    <span class="mode-icon">↗</span><span class="mode-copy"><strong>One-to-one</strong><small>Private chat with one person</small></span>
+                    <span class="mode-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 01-11.6 7.1L3 21l1.9-5.4A8 8 0 1121 12z"/></svg></span><span class="mode-copy"><strong>One-to-one</strong><small>Private chat with one person</small></span>
                 </button>
             </nav>
 
@@ -55,7 +47,7 @@
                 </div>
                 <div class="header-actions">
                     <span class="active-count" id="active-count" aria-live="polite">0 active</span>
-                    <span class="ai-badge" id="ai-badge" hidden></span>
+                    <span class="ai-badge" id="ai-badge" hidden>AI · not a real person</span>
                     <span class="service-status" id="service-status">CONNECTING...</span>
                     <button class="small-action" id="next-chat" type="button" hidden>Next chat</button>
                     <button class="small-action end-action" id="report-chat" type="button" hidden>Report</button>
@@ -71,6 +63,13 @@
                 <div class="private-greeting" id="private-greeting" hidden></div>
                 <div class="message-list" id="message-list"></div>
                 <div class="match-state" id="match-state" hidden>
+                    <div class="meet" aria-hidden="true">
+                        <span class="meet-line"></span>
+                        <span class="meet-person l"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="22" fill="#ffd1dc"/><circle cx="22" cy="18" r="7" fill="#f4b99a"/><path d="M14 20c-1-8 3-12 8-12s9 4 8 12c-1-4-3-6-8-6s-7 2-8 6z" fill="#3a1f1a"/><path d="M8 40c1-8 7-12 14-12s13 4 14 12z" fill="#ff6b8b"/></svg></span>
+                        <span class="meet-person r"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="22" fill="#c9d8ff"/><circle cx="22" cy="18" r="7" fill="#e8b08a"/><path d="M15 17a7 7 0 0114 0c-3-3-11-3-14 0z" fill="#1c1c1c"/><path d="M8 40c1-8 7-12 14-12s13 4 14 12z" fill="#3b6df0"/></svg></span>
+                        <span class="meet-ring"></span><span class="meet-ring two"></span>
+                        <span class="meet-heart h1">♥</span><span class="meet-heart h2">♥</span><span class="meet-heart h3">♥</span>
+                    </div>
                     <h2 id="match-title">Find someone to chat with privately.</h2>
                     <p id="match-copy">Choose who you would like to chat with. Gender is self-reported and not verified.</p>
                     <div class="match-preference-control">
@@ -81,19 +80,20 @@
                         </select>
                     </div>
                     <div class="match-actions">
-                        <button class="back-to-room" type="button" id="find-match">Find a partner</button>
+                        <button class="back-to-room primary" type="button" id="find-match">Find a partner</button>
                         <button class="cancel-match" type="button" id="cancel-match" hidden>Cancel search</button>
                         <button class="back-to-room" type="button" id="back-to-room">Go to public room</button>
                     </div>
                     <div class="ai-offer" id="ai-offer" hidden>
-                        <button class="back-to-room" type="button" id="start-ai">Chat</button>
+                        <button class="back-to-room" type="button" id="start-ai">Chat with AI</button>
+                        <p class="ai-note">This is an AI, not a real person. Its messages are generated by an AI service.</p>
                     </div>
                 </div>
             </section>
 
             <form class="composer" id="message-form">
                 <label class="sr-only" for="message-input">Write a message</label>
-                <textarea id="message-input" rows="1" maxlength="600" placeholder="Write a message..." required></textarea>
+                <textarea id="message-input" rows="1" maxlength="600" placeholder="Type a message here..." required></textarea>
                 <div class="composer-footer">
                     <span class="composer-hint" id="composer-hint">Connecting to server...</span>
                     <div class="composer-controls"><span class="char-count" id="char-count">0 / 600</span><button class="send-button" type="submit" aria-label="Send message"><span>Send</span><span class="send-arrow">↑</span></button></div>
@@ -128,5 +128,23 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
     <script src="script.js" defer></script>
+    <script>
+    // Sirf look ke liye: har naam ko apna "mask" rang do, aur searching state CSS ko batao.
+    (function () {
+        var list = document.getElementById("message-list");
+        var status = document.getElementById("service-status");
+        function paint(av) {
+            if (av.dataset.hue || av.classList.contains("avatar-you")) return;
+            var t = av.textContent || "", h = 0;
+            for (var i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) % 360;
+            av.dataset.hue = h;
+            if (!av.closest(".ai-message")) av.style.setProperty("--hue", h);
+        }
+        function sweep() { list.querySelectorAll(".avatar").forEach(paint); }
+        function sync() { document.body.dataset.state = status.dataset.state || ""; }
+        if (list) new MutationObserver(sweep).observe(list, { childList: true, subtree: true });
+        if (status) { new MutationObserver(sync).observe(status, { attributes: true, attributeFilter: ["data-state"] }); sync(); }
+    })();
+    </script>
 </body>
 </html>
