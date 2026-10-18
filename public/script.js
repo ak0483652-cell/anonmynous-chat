@@ -59,6 +59,133 @@ let activeEmojiCategory = "Love";
 
 document.querySelector("#profile-country").value = "India";
 
+// ---------- Entry method: Anonymous (Turnstile) ya Gmail (Firebase) ----------
+// config.js mein window.STRANGELY_FIREBASE = { apiKey, authDomain, projectId, appId } daalo, aur Render mein FIREBASE_PROJECT_ID.
+const firebaseConfig = window.STRANGELY_FIREBASE || null;
+const FIREBASE_VERSION = "10.14.1";
+let authMode = readAuthMode();
+let googleEnabled = false;
+let firebaseApi = null;
+let firebaseLoading = null;
+let firebaseUser = null;
+const authTabs = document.querySelectorAll(".auth-tab");
+const authAnonPanel = document.querySelector("#auth-anon");
+const authGooglePanel = document.querySelector("#auth-google");
+const googleStatus = document.querySelector("#google-status");
+const googleSignIn = document.querySelector("#google-signin");
+const googleSignOut = document.querySelector("#google-signout");
+
+function readAuthMode() {
+	try {
+		return sessionStorage.getItem("strangely-auth") === "google" ? "google" : "anon";
+	} catch {
+		return "anon";
+	}
+}
+
+function loadFirebase() {
+	if (!firebaseConfig || !firebaseConfig.apiKey) return Promise.resolve(null);
+	if (!firebaseLoading) {
+		firebaseLoading = (async () => {
+			try {
+				const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}`;
+				const [appModule, authModule] = await Promise.all([import(`${base}/firebase-app.js`), import(`${base}/firebase-auth.js`)]);
+				const auth = authModule.getAuth(appModule.initializeApp(firebaseConfig));
+				await new Promise((resolve) => {
+					const stop = authModule.onAuthStateChanged(auth, () => {
+						stop();
+						resolve();
+					});
+				});
+				firebaseUser = auth.currentUser;
+				firebaseApi = { auth, module: authModule };
+				return firebaseApi;
+			} catch {
+				return null;
+			}
+		})();
+	}
+	return firebaseLoading;
+}
+
+function renderAuthUi() {
+	const canGoogle = googleEnabled && Boolean(firebaseConfig && firebaseConfig.apiKey);
+	document.querySelector("#auth-tab-google").hidden = !canGoogle;
+	if (!canGoogle && authMode === "google") authMode = "anon";
+	authTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.auth === authMode));
+	authAnonPanel.hidden = authMode !== "anon";
+	authGooglePanel.hidden = authMode !== "google";
+	if (authMode === "google") {
+		const email = firebaseUser?.email;
+		googleStatus.textContent = email ? `Signed in as ${email}. Only you can see this.` : "Sign in with your Gmail account. Your email is never shown to other people.";
+		googleSignIn.textContent = email ? "Use a different Gmail" : "Continue with Google";
+		googleSignOut.hidden = !email;
+	}
+}
+
+function setAuthMode(mode) {
+	authMode = mode === "google" ? "google" : "anon";
+	try {
+		sessionStorage.setItem("strangely-auth", authMode);
+	} catch {
+		// ignore
+	}
+	renderAuthUi();
+	if (authMode === "google") loadFirebase().then(renderAuthUi);
+}
+
+async function signInWithGoogle() {
+	googleSignIn.disabled = true;
+	try {
+		const api = await loadFirebase();
+		if (!api) {
+			showToast("Gmail sign-in is not set up yet.");
+			return;
+		}
+		const { GoogleAuthProvider, signInWithPopup, signOut } = api.module;
+		const provider = new GoogleAuthProvider();
+		provider.setCustomParameters({ prompt: "select_account" });
+		const result = await signInWithPopup(api.auth, provider);
+		if (!/@gmail\.com$/i.test(result.user.email || "")) {
+			await signOut(api.auth);
+			firebaseUser = null;
+			showToast("Please use a Gmail (@gmail.com) account.");
+		} else {
+			firebaseUser = result.user;
+		}
+	} catch (error) {
+		const code = String(error?.code || "");
+		if (code === "auth/unauthorized-domain") showToast("Add this website in Firebase > Authentication > Settings > Authorized domains.");
+		else if (code === "auth/popup-blocked") showToast("Popup was blocked. Allow popups and try again.");
+		else if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") showToast("Gmail sign-in failed. Please try again.");
+	} finally {
+		googleSignIn.disabled = false;
+		renderAuthUi();
+	}
+}
+
+async function getGoogleToken() {
+	const api = await loadFirebase();
+	const user = api?.auth.currentUser || null;
+	firebaseUser = user;
+	if (!user) return "";
+	try {
+		return await user.getIdToken();
+	} catch {
+		return "";
+	}
+}
+
+authTabs.forEach((tab) => tab.addEventListener("click", () => setAuthMode(tab.dataset.auth)));
+googleSignIn.addEventListener("click", signInWithGoogle);
+googleSignOut.addEventListener("click", async () => {
+	const api = await loadFirebase();
+	if (api) await api.module.signOut(api.auth);
+	firebaseUser = null;
+	renderAuthUi();
+});
+renderAuthUi();
+
 function getTurnstileToken() {
 	try {
 		return window.turnstile ? window.turnstile.getResponse() || "" : "";
@@ -534,12 +661,20 @@ function connect() {
 			currentUserId = message.userId || "";
 			guestName = message.guestName;
 			aiEnabled = Boolean(message.aiEnabled);
+			googleEnabled = Boolean(message.googleEnabled);
+			renderAuthUi();
 			document.querySelector("#ai-offer").hidden = !aiEnabled;
 			guestNameElement.textContent = guestName;
 			guestAvatar.textContent = guestName.slice(-1);
 			serviceStatus.textContent = "LIVE";
 			serviceStatus.dataset.state = "live";
-			if (profile) {
+			if (profile && authMode === "google") {
+				// Gmail se aaya tha: Firebase se naya token lekar seedha profile bhejo.
+				getGoogleToken().then((token) => {
+					if (token) sendToServer({ type: "set-profile", profile, firebaseToken: token });
+					else openProfileDialog();
+				});
+			} else if (profile) {
 				// Saved profile hai: Turnstile token mil jaye to seedha bhejo, warna dialog kholo.
 				const token = getTurnstileToken();
 				if (token) {
@@ -709,13 +844,18 @@ document.querySelector("#edit-profile").addEventListener("click", () => {
 	openProfileDialog();
 });
 
-profileForm.addEventListener("submit", (event) => {
+profileForm.addEventListener("submit", async (event) => {
 	event.preventDefault();
 	if (!profileForm.reportValidity()) return;
 
-	// Is connection par verify nahi hua hai to Turnstile token zaroori hai.
-	const token = getTurnstileToken();
-	if (!verified && !token) {
+	// Gmail: Google ID token chahiye. Anonymous: Turnstile token (agar is connection par verify nahi hua).
+	const googleToken = authMode === "google" ? await getGoogleToken() : "";
+	if (authMode === "google" && !googleToken) {
+		showToast("Please sign in with Gmail first.");
+		return;
+	}
+	const token = authMode === "google" ? "" : getTurnstileToken();
+	if (authMode !== "google" && !verified && !token) {
 		showToast("Please complete the verification first.");
 		return;
 	}
@@ -729,7 +869,7 @@ profileForm.addEventListener("submit", (event) => {
 	sessionStorage.setItem("strangely-profile", JSON.stringify(profile));
 	updateProfileSummary();
 	profileDialog.close();
-	sendToServer({ type: "set-profile", profile, turnstileToken: token });
+	sendToServer(authMode === "google" ? { type: "set-profile", profile, firebaseToken: googleToken } : { type: "set-profile", profile, turnstileToken: token });
 	if (token) resetTurnstile();
 });
 
