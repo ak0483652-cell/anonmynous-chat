@@ -32,6 +32,24 @@ let socket;
 let reconnectTimer;
 let toastTimer;
 
+const EMOJI_CATEGORIES = {
+  Love: ["❤️","🩷","🧡","💛","💚","🩵","💙","💜","🤎","🖤","🩶","🤍","💕","💞","💓","💗","💖","💘","💝","💟","❣️","💌","💋","😘","😗","😙","😚","🥰","😍","🤩","🫶","💑","💏","🌹","🌷","🌸","💐","🦋","✨","🌙"],
+  Reactions: ["👍","👎","👏","🙌","🤝","🙏","💪","🫡","🤗","🫂","🤔","🤭","🫢","🫣","🤫","🤨","😏","🥹","🥲","😭","😌","😇","🥺","😳","😎","🤓","🫠","😮","😯","😲","😱","🤯","😴","🥱","😬","🙄","😤","😡","🤬","🤒"],
+  Funny: ["😂","🤣","😆","😅","😹","😜","😝","😛","🤪","😋","😜","🙃","😉","😄","😁","😎","🤡","👻","💀","☠️","🤖","👀","🫨","🤠","🥳","🤓","🍿","🎉","🎊","🔥","💯","🚀","⚡","🎯"],
+  Comfort: ["🫂","🤗","🫶","❤️‍🩹","💗","🥹","🥺","😔","😢","😭","😞","😟","😕","🙁","☹️","🌧️","🌈","☀️","🌻","🫂","🕊️","🧸","🫖","☕","🌙","⭐","✨","💐","🙏","🫂","💝","🫶"],
+  Group: ["👋","🙋","🙌","👏","🤝","🫡","🤜","🤛","✌️","🤟","🤘","🖐️","👋","🫰","👐","💬","💭","🗣️","👥","🫂","🎉","🥳","🎂","🏆","🏅","🎈","🎁","🎮","🎶","🎵","📣","💯","🔥","❤️","😂","👍","🙏","👀","🤔","😎"],
+  Animals: ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🐣","🐥","🐦","🦄","🐝","🦋","🐢","🐬","🐳","🦖","🐾","🐈","🐕","🦦","🦥"],
+  Food: ["🍕","🍔","🍟","🌭","🍿","🧋","☕","🫖","🍵","🥤","🍰","🎂","🧁","🍩","🍪","🍫","🍓","🍒","🍑","🍉","🍍","🥭","🍌","🍎","🍇","🥑","🍜","🍝","🍣","🍦","🥐","🥨","🧀","🌮","🍭","🍬"],
+  Symbols: ["✅","❌","❣️","💯","💢","💥","💫","💦","💨","💤","🔔","🎵","🎶","☮️","♾️","⚡","☀️","🌤️","🌧️","❄️","⭐","🌟","✨","🎇","🎆","🎀","🎗️","🔮","🪄","🧿","🔒","🔑","💎"]
+};
+const QUICK_REACTIONS = ["❤️", "😂", "🥹", "👍", "😍", "😮"];
+const ALL_EMOJIS = [...new Set(Object.values(EMOJI_CATEGORIES).flat())];
+const emojiToggle = document.querySelector("#emoji-toggle");
+const emojiPicker = document.querySelector("#emoji-picker");
+const emojiCategories = document.querySelector("#emoji-categories");
+const emojiGrid = document.querySelector("#emoji-grid");
+let activeEmojiCategory = "Love";
+
 document.querySelector("#profile-country").value = "India";
 
 function getTurnstileToken() {
@@ -112,8 +130,172 @@ function sendToServer(message) {
 	return true;
 }
 
+function renderEmojiPicker() {
+  emojiCategories.replaceChildren();
+  for (const category of Object.keys(EMOJI_CATEGORIES)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `emoji-category${category === activeEmojiCategory ? " active" : ""}`;
+    button.textContent = category;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", category === activeEmojiCategory ? "true" : "false");
+    button.addEventListener("click", () => {
+      activeEmojiCategory = category;
+      renderEmojiPicker();
+    });
+    emojiCategories.append(button);
+  }
+  emojiGrid.replaceChildren();
+  for (const emoji of EMOJI_CATEGORIES[activeEmojiCategory] || []) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "emoji-choice";
+    button.textContent = emoji;
+    button.title = `Insert ${emoji}`;
+    button.setAttribute("aria-label", `Insert ${emoji}`);
+    button.addEventListener("click", () => insertEmoji(emoji));
+    emojiGrid.append(button);
+  }
+}
+
+function insertEmoji(emoji) {
+  if (!messageInput || messageInput.disabled) return;
+  const start = Number.isInteger(messageInput.selectionStart) ? messageInput.selectionStart : messageInput.value.length;
+  const end = Number.isInteger(messageInput.selectionEnd) ? messageInput.selectionEnd : start;
+  const nextLength = messageInput.value.length - (end - start) + emoji.length;
+  if (nextLength > 600) {
+    showToast("Message is too long to add another emoji.");
+    return;
+  }
+  messageInput.setRangeText(emoji, start, end, "end");
+  messageInput.dispatchEvent(new Event("input", { bubbles: true }));
+  messageInput.focus();
+}
+
+function closeEmojiPicker() {
+  emojiPicker.hidden = true;
+  emojiToggle.setAttribute("aria-expanded", "false");
+}
+
+function currentReactionScope(isPrivate) {
+  if (!isPrivate) return "public";
+  return peerIsAi ? "ai" : "private";
+}
+
+function sendReaction(message, isPrivate, emoji) {
+  if (!message.messageId) {
+    showToast("This older message cannot be reacted to.");
+    return;
+  }
+  sendToServer({
+    type: "reaction",
+    scope: currentReactionScope(isPrivate),
+    messageId: message.messageId,
+    emoji
+  });
+}
+
+function createReactionArea(message, isPrivate) {
+  const area = document.createElement("div");
+  area.className = "message-reaction-area";
+  area.dataset.messageId = message.messageId || "";
+  const reactions = Array.isArray(message.reactions) ? message.reactions : [];
+  if (reactions.length) {
+    const summary = document.createElement("div");
+    summary.className = "message-reaction-summary";
+    for (const reaction of reactions) {
+      if (!reaction || !reaction.emoji || !Number.isInteger(reaction.count) || reaction.count < 1) continue;
+      const pill = document.createElement("button");
+      pill.type = "button";
+      pill.className = `reaction-pill${message.myReaction === reaction.emoji ? " mine" : ""}`;
+      pill.title = `React with ${reaction.emoji}`;
+      pill.setAttribute("aria-label", `${reaction.emoji}, ${reaction.count} reaction${reaction.count === 1 ? "" : "s"}`);
+      const symbol = document.createElement("span");
+      symbol.textContent = reaction.emoji;
+      const count = document.createElement("strong");
+      count.textContent = String(reaction.count);
+      pill.append(symbol, count);
+      pill.addEventListener("click", () => sendReaction(message, isPrivate, reaction.emoji));
+      summary.append(pill);
+    }
+    area.append(summary);
+  }
+
+  if (message.messageId) {
+    const quicks = document.createElement("div");
+    quicks.className = "reaction-quick-actions";
+    for (const emoji of QUICK_REACTIONS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `reaction-quick${message.myReaction === emoji ? " mine" : ""}`;
+      button.textContent = emoji;
+      button.title = `React with ${emoji}`;
+      button.setAttribute("aria-label", `React with ${emoji}`);
+      button.addEventListener("click", () => sendReaction(message, isPrivate, emoji));
+      quicks.append(button);
+    }
+
+    const moreWrap = document.createElement("span");
+    moreWrap.className = "reaction-more-wrap";
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "reaction-quick reaction-more-toggle";
+    more.textContent = "+";
+    more.title = "More reactions";
+    more.setAttribute("aria-label", "More reactions");
+    const panel = document.createElement("div");
+    panel.className = "reaction-more";
+    panel.hidden = true;
+    let panelBuilt = false;
+    function buildReactionPanel() {
+      if (panelBuilt) return;
+      panelBuilt = true;
+      for (const emoji of ALL_EMOJIS) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "emoji-choice";
+        button.textContent = emoji;
+        button.title = `React with ${emoji}`;
+        button.setAttribute("aria-label", `React with ${emoji}`);
+        button.addEventListener("click", () => {
+          panel.hidden = true;
+          sendReaction(message, isPrivate, emoji);
+        });
+        panel.append(button);
+      }
+    }
+    more.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const wasHidden = panel.hidden;
+      document.querySelectorAll(".reaction-more").forEach((other) => { other.hidden = true; });
+      if (wasHidden) buildReactionPanel();
+      panel.hidden = !wasHidden;
+    });
+    moreWrap.append(more, panel);
+    quicks.append(moreWrap);
+    area.append(quicks);
+  }
+  return area;
+}
+
+function updateReactionOnMessage(payload) {
+  const targetList = payload.scope === "public" ? publicMessages : privateMessages;
+  const message = targetList.find((item) => item.messageId === payload.messageId);
+  if (!message) return;
+  message.reactions = Array.isArray(payload.reactions) ? payload.reactions : [];
+  message.myReaction = typeof payload.myReaction === "string" ? payload.myReaction : null;
+  const visibleScope = payload.scope === "public" ? activeMode === "room" : activeMode === "private" && privateState === "matched";
+  if (!visibleScope) return;
+  const items = [...messageList.querySelectorAll(".message")];
+  const item = items.find((node) => node.dataset.messageId === payload.messageId);
+  if (!item) return;
+  const previous = item.querySelector(".message-reaction-area");
+  if (previous) previous.replaceWith(createReactionArea(message, payload.scope !== "public"));
+}
+
 function renderMessage(message, isPrivate) {
 	const item = document.createElement("article");
+	if (message.messageId) item.dataset.messageId = message.messageId;
 	const isMine = message.name === guestName;
 	item.className = `message${isMine ? " mine" : ""}`;
 
@@ -154,7 +336,7 @@ function renderMessage(message, isPrivate) {
 	const text = document.createElement("p");
 	text.className = "message-text";
 	text.textContent = message.text;
-	body.append(meta, text);
+	body.append(meta, text, createReactionArea(message, isPrivate));
 	item.append(avatar, body);
 	messageList.append(item);
 	if (!isPrivate) emptyState.hidden = true;
@@ -341,6 +523,8 @@ function connect() {
 				renderMessage(message, true);
 				document.querySelector("#conversation").scrollTop = document.querySelector("#conversation").scrollHeight;
 			}
+		} else if (message.type === "message-reaction-update") {
+			updateReactionOnMessage(message);
 		} else if (["partner-left", "private-left", "match-cancelled"].includes(message.type)) {
 			privateState = "idle";
 			peerIsAi = false;
@@ -403,6 +587,19 @@ function connect() {
 	});
 	socket.addEventListener("error", () => socket.close());
 }
+
+renderEmojiPicker();
+emojiToggle.addEventListener("click", () => {
+  const opening = emojiPicker.hidden;
+  emojiPicker.hidden = !opening;
+  emojiToggle.setAttribute("aria-expanded", opening ? "true" : "false");
+  if (opening) messageInput.focus();
+});
+document.querySelector("#emoji-close").addEventListener("click", closeEmojiPicker);
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".composer-emoji-wrap")) closeEmojiPicker();
+  if (!event.target.closest(".reaction-more-wrap")) document.querySelectorAll(".reaction-more").forEach((panel) => { panel.hidden = true; });
+});
 
 connect();
 
