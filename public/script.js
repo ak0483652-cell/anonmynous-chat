@@ -31,6 +31,13 @@ let guestName = `Guest-${Math.floor(100 + Math.random() * 900)}`;
 let socket;
 let reconnectTimer;
 let toastTimer;
+let currentUserId = "";
+let editingMessageId = null;
+let editingScope = null;
+let editRequestPending = false;
+const cancelEditButton = document.querySelector("#cancel-edit");
+const sendButtonLabel = document.querySelector("#send-button-label");
+const sendButton = messageForm.querySelector(".send-button");
 
 const EMOJI_CATEGORIES = {
   Love: ["❤️","🩷","🧡","💛","💚","🩵","💙","💜","🤎","🖤","🩶","🤍","💕","💞","💓","💗","💖","💘","💝","💟","❣️","💌","💋","😘","😗","😙","😚","🥰","😍","🤩","🫶","💑","💏","🌹","🌷","🌸","💐","🦋","✨","🌙"],
@@ -221,31 +228,23 @@ function createReactionArea(message, isPrivate) {
     area.append(summary);
   }
 
+  // Keep the reaction UI collapsed: one emoji button opens the full picker.
   if (message.messageId) {
-    const quicks = document.createElement("div");
-    quicks.className = "reaction-quick-actions";
-    for (const emoji of QUICK_REACTIONS) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = `reaction-quick${message.myReaction === emoji ? " mine" : ""}`;
-      button.textContent = emoji;
-      button.title = `React with ${emoji}`;
-      button.setAttribute("aria-label", `React with ${emoji}`);
-      button.addEventListener("click", () => sendReaction(message, isPrivate, emoji));
-      quicks.append(button);
-    }
+    const wrap = document.createElement("span");
+    wrap.className = "reaction-more-wrap";
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = `reaction-quick reaction-more-toggle${message.myReaction ? " mine" : ""}`;
+    trigger.textContent = "☺️";
+    trigger.title = "React to this message";
+    trigger.setAttribute("aria-label", "Open message reactions");
+    trigger.setAttribute("aria-expanded", "false");
 
-    const moreWrap = document.createElement("span");
-    moreWrap.className = "reaction-more-wrap";
-    const more = document.createElement("button");
-    more.type = "button";
-    more.className = "reaction-quick reaction-more-toggle";
-    more.textContent = "+";
-    more.title = "More reactions";
-    more.setAttribute("aria-label", "More reactions");
     const panel = document.createElement("div");
     panel.className = "reaction-more";
     panel.hidden = true;
+    panel.setAttribute("role", "group");
+    panel.setAttribute("aria-label", "Choose a reaction emoji");
     let panelBuilt = false;
     function buildReactionPanel() {
       if (panelBuilt) return;
@@ -257,23 +256,29 @@ function createReactionArea(message, isPrivate) {
         button.textContent = emoji;
         button.title = `React with ${emoji}`;
         button.setAttribute("aria-label", `React with ${emoji}`);
-        button.addEventListener("click", () => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
           panel.hidden = true;
+          trigger.setAttribute("aria-expanded", "false");
           sendReaction(message, isPrivate, emoji);
         });
         panel.append(button);
       }
     }
-    more.addEventListener("click", (event) => {
+    trigger.addEventListener("click", (event) => {
       event.stopPropagation();
-      const wasHidden = panel.hidden;
+      const opening = panel.hidden;
       document.querySelectorAll(".reaction-more").forEach((other) => { other.hidden = true; });
-      if (wasHidden) buildReactionPanel();
-      panel.hidden = !wasHidden;
+      document.querySelectorAll(".reaction-more-toggle").forEach((other) => other.setAttribute("aria-expanded", "false"));
+      if (opening) buildReactionPanel();
+      panel.hidden = !opening;
+      trigger.setAttribute("aria-expanded", opening ? "true" : "false");
     });
-    moreWrap.append(more, panel);
-    quicks.append(moreWrap);
-    area.append(quicks);
+    wrap.append(trigger, panel);
+    const actions = document.createElement("div");
+    actions.className = "reaction-quick-actions";
+    actions.append(wrap);
+    area.append(actions);
   }
   return area;
 }
@@ -294,55 +299,138 @@ function updateReactionOnMessage(payload) {
 }
 
 function renderMessage(message, isPrivate) {
-	const item = document.createElement("article");
-	if (message.messageId) item.dataset.messageId = message.messageId;
-	const isMine = message.name === guestName;
-	item.className = `message${isMine ? " mine" : ""}`;
+  const item = document.createElement("article");
+  if (message.messageId) item.dataset.messageId = message.messageId;
+  const isMine = currentUserId && message.userId ? message.userId === currentUserId : message.name === guestName;
+  item.className = `message${isMine ? " mine" : ""}`;
 
-	const avatar = document.createElement("div");
-	avatar.className = `avatar ${isMine ? "avatar-you" : "avatar-chat"}`;
-	avatar.textContent = isMine ? "ME" : message.ai ? "AI" : message.name.slice(-2).toUpperCase();
-	if (message.ai) item.classList.add("ai-message");
-	avatar.setAttribute("aria-hidden", "true");
+  const avatar = document.createElement("div");
+  avatar.className = `avatar ${isMine ? "avatar-you" : "avatar-chat"}`;
+  avatar.textContent = isMine ? "ME" : message.ai ? "AI" : String(message.name || "Guest").slice(-2).toUpperCase();
+  if (message.ai) item.classList.add("ai-message");
+  avatar.setAttribute("aria-hidden", "true");
 
-	const body = document.createElement("div");
-	body.className = "message-body";
-	const meta = document.createElement("div");
-	meta.className = "message-meta";
-	const name = document.createElement("span");
-	name.className = "message-name";
-	name.textContent = message.name;
-	const time = document.createElement("time");
-	time.className = "message-time";
-	time.textContent = new Date(message.sentAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-	meta.append(name, time);
-	const senderProfile = document.createElement("span");
-	senderProfile.className = "message-profile";
-	senderProfile.textContent = profileLabel(message.profile);
-	if (senderProfile.textContent) meta.append(senderProfile);
-	if (!isMine && !isPrivate && message.userId) {
-		const reportButton = document.createElement("button");
-		reportButton.type = "button";
-		reportButton.className = "report-link";
-		reportButton.textContent = "Report";
-		reportButton.title = "Report and block this person";
-		reportButton.addEventListener("click", () => {
-			if (!window.confirm(`Report ${message.name} and hide their messages?`)) return;
-			sendToServer({ type: "report", scope: "public", userId: message.userId });
-		});
-		meta.append(reportButton);
-	}
+  const body = document.createElement("div");
+  body.className = "message-body";
+  const meta = document.createElement("div");
+  meta.className = "message-meta";
+  const name = document.createElement("span");
+  name.className = "message-name";
+  name.textContent = message.name || "Guest";
+  const time = document.createElement("time");
+  time.className = "message-time";
+  time.textContent = new Date(message.sentAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  meta.append(name, time);
 
-	const text = document.createElement("p");
-	text.className = "message-text";
-	text.textContent = message.text;
-	body.append(meta, text, createReactionArea(message, isPrivate));
-	item.append(avatar, body);
-	messageList.append(item);
-	if (!isPrivate) emptyState.hidden = true;
+  const senderProfile = document.createElement("span");
+  senderProfile.className = "message-profile";
+  senderProfile.textContent = profileLabel(message.profile);
+  if (senderProfile.textContent) meta.append(senderProfile);
+
+  if (isMine && !message.ai && message.messageId) {
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "edit-message-button";
+    editButton.textContent = "Edit";
+    editButton.title = "Edit your message";
+    editButton.addEventListener("click", () => beginMessageEdit(message, isPrivate));
+    meta.append(editButton);
+  }
+  if (!isMine && !isPrivate && message.userId) {
+    const reportButton = document.createElement("button");
+    reportButton.type = "button";
+    reportButton.className = "report-link";
+    reportButton.textContent = "Report";
+    reportButton.title = "Report and block this person";
+    reportButton.addEventListener("click", () => {
+      if (!window.confirm(`Report ${message.name} and hide their messages?`)) return;
+      sendToServer({ type: "report", scope: "public", userId: message.userId });
+    });
+    meta.append(reportButton);
+  }
+
+  const text = document.createElement("p");
+  text.className = "message-text";
+  text.textContent = message.text;
+  body.append(meta);
+  if (message.edited) {
+    const edited = document.createElement("span");
+    edited.className = "message-edited";
+    edited.textContent = "Edited";
+    body.append(edited);
+  }
+  body.append(text, createReactionArea(message, isPrivate));
+  item.append(avatar, body);
+  messageList.append(item);
+  if (!isPrivate) emptyState.hidden = true;
+}
+
+function beginMessageEdit(message, isPrivate) {
+  if (!message?.messageId || message.ai) return;
+  if (editingMessageId && editingMessageId !== message.messageId) resetMessageEdit(true);
+  editingMessageId = message.messageId;
+  editingScope = currentReactionScope(isPrivate);
+  editRequestPending = false;
+  messageInput.value = String(message.text || "");
+  charCount.textContent = `${messageInput.value.length} / 600`;
+  sendButtonLabel.textContent = "Save";
+  sendButton.setAttribute("aria-label", "Save edited message");
+  sendButton.disabled = false;
+  cancelEditButton.hidden = false;
+  closeEmojiPicker();
+  fitTextarea();
+  messageInput.focus();
+  showToast("Editing your message. Press Save when finished.");
+}
+
+function resetMessageEdit(clearInput = true) {
+  editingMessageId = null;
+  editingScope = null;
+  editRequestPending = false;
+  sendButtonLabel.textContent = "Send";
+  sendButton.setAttribute("aria-label", "Send message");
+  sendButton.disabled = false;
+  cancelEditButton.hidden = true;
+  if (clearInput) messageInput.value = "";
+  charCount.textContent = `${messageInput.value.length} / 600`;
+  fitTextarea();
+}
+
+function updateEditedMessage(payload) {
+  const targetList = payload.scope === "public" ? publicMessages : privateMessages;
+  const message = targetList.find((item) => item.messageId === payload.messageId);
+  if (message) {
+    message.text = payload.text;
+    message.edited = Boolean(payload.edited);
+    message.editedAt = payload.editedAt || null;
+  }
+  const visible = payload.scope === "public"
+    ? activeMode === "room"
+    : activeMode === "private" && privateState === "matched" && (payload.scope !== "ai" || peerIsAi);
+  if (visible) {
+    const item = [...messageList.querySelectorAll(".message")].find((node) => node.dataset.messageId === payload.messageId);
+    if (item) {
+      const text = item.querySelector(".message-text");
+      if (text) text.textContent = payload.text;
+      let label = item.querySelector(".message-edited");
+      if (payload.edited) {
+        if (!label) {
+          label = document.createElement("span");
+          label.className = "message-edited";
+          text?.before(label);
+        }
+        label.textContent = "Edited";
+      } else if (label) label.remove();
+    }
+  }
+  if (editingMessageId === payload.messageId) {
+    resetMessageEdit(true);
+    showToast("Message edited successfully.");
+  }
 }
 
 function showMode(mode) {
+  if (editingMessageId && ((editingScope === "public" && mode !== "room") || (editingScope !== "public" && mode !== "private"))) resetMessageEdit(true);
 	activeMode = mode;
 	const isRoom = mode === "room";
 	document.querySelector("#room-title").textContent = isRoom ? "Public room" : "One-to-one";
@@ -443,6 +531,7 @@ function connect() {
 			const count = Number.isInteger(message.count) && message.count >= 0 ? message.count : 0;
 			activeCount.textContent = `${count} active`;
 		} else if (message.type === "ready") {
+			currentUserId = message.userId || "";
 			guestName = message.guestName;
 			aiEnabled = Boolean(message.aiEnabled);
 			document.querySelector("#ai-offer").hidden = !aiEnabled;
@@ -497,6 +586,7 @@ function connect() {
 			serviceStatus.dataset.state = "searching";
 			showMode("private");
 		} else if (message.type === "matched") {
+      if (editingScope && editingScope !== "public") resetMessageEdit(true);
 			privateState = "matched";
 			peerIsAi = false;
 			matchPreference.disabled = true;
@@ -525,7 +615,10 @@ function connect() {
 			}
 		} else if (message.type === "message-reaction-update") {
 			updateReactionOnMessage(message);
+		} else if (message.type === "message-edited") {
+			updateEditedMessage(message);
 		} else if (["partner-left", "private-left", "match-cancelled"].includes(message.type)) {
+      if (editingScope && editingScope !== "public") resetMessageEdit(true);
 			privateState = "idle";
 			peerIsAi = false;
 			matchPreference.disabled = false;
@@ -540,6 +633,7 @@ function connect() {
 			serviceStatus.dataset.state = "live";
 			if (activeMode === "private") showMode("private");
 		} else if (message.type === "ai-matched") {
+      if (editingScope && editingScope !== "public") resetMessageEdit(true);
 			privateState = "matched";
 			peerIsAi = true;
 			matchPreference.disabled = true;
@@ -571,6 +665,11 @@ function connect() {
 		} else if (message.type === "banned") {
 			handleBanned(message.message);
 		} else if (message.type === "error") {
+      if (editRequestPending) {
+        editRequestPending = false;
+        sendButton.disabled = false;
+        sendButtonLabel.textContent = "Save";
+      }
 			showToast(message.message);
 		}
 	});
@@ -598,7 +697,10 @@ emojiToggle.addEventListener("click", () => {
 document.querySelector("#emoji-close").addEventListener("click", closeEmojiPicker);
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".composer-emoji-wrap")) closeEmojiPicker();
-  if (!event.target.closest(".reaction-more-wrap")) document.querySelectorAll(".reaction-more").forEach((panel) => { panel.hidden = true; });
+  if (!event.target.closest(".reaction-more-wrap")) {
+    document.querySelectorAll(".reaction-more").forEach((panel) => { panel.hidden = true; });
+    document.querySelectorAll(".reaction-more-toggle").forEach((button) => button.setAttribute("aria-expanded", "false"));
+  }
 });
 
 connect();
@@ -655,16 +757,28 @@ messageInput.addEventListener("keydown", (event) => {
 });
 
 messageForm.addEventListener("submit", (event) => {
-	event.preventDefault();
-	const text = messageInput.value.trim();
-	if (!text) return;
+  event.preventDefault();
+  const text = messageInput.value.trim();
+  if (!text) return;
+  if (editingMessageId) {
+    if (editRequestPending) return;
+    if (!sendToServer({ type: "edit-message", scope: editingScope, messageId: editingMessageId, text })) return;
+    editRequestPending = true;
+    sendButton.disabled = true;
+    sendButtonLabel.textContent = "Saving…";
+    return;
+  }
+  const type = activeMode === "room" ? "public-message" : "private-message";
+  if (!sendToServer({ type, text })) return;
+  messageInput.value = "";
+  charCount.textContent = "0 / 600";
+  fitTextarea();
+  messageInput.focus();
+});
 
-	const type = activeMode === "room" ? "public-message" : "private-message";
-	if (!sendToServer({ type, text })) return;
-	messageInput.value = "";
-	charCount.textContent = "0 / 600";
-	fitTextarea();
-	messageInput.focus();
+cancelEditButton.addEventListener("click", () => {
+  resetMessageEdit(true);
+  messageInput.focus();
 });
 
 document.querySelector("#find-match").addEventListener("click", () => {
