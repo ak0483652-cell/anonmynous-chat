@@ -267,115 +267,26 @@ body[data-state="searching"] .meet { --t: 2.2s; }
 .reaction-pill { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 3px 8px; min-height: 27px; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; box-shadow: 0 2px 6px rgba(31, 42, 68, .05); }
 .reaction-pill strong { font-size: 11px; color: var(--muted); }
 .reaction-pill.mine { border-color: color-mix(in srgb, var(--accent) 45%, white); background: var(--accent-soft); }
-.reaction-quick-actions { display: flex; flex-wrap: wrap; gap: 4px; opacity: .86; }
-.reaction-quick { border: 1px solid transparent; background: var(--pane); border-radius: 9px; padding: 4px 6px; line-height: 1.2; font-size: 16px; min-width: 29px; transition: transform .12s ease, background .12s ease; }
-.reaction-quick:hover, .reaction-quick:focus-visible { background: var(--accent-soft); transform: translateY(-1px); }
+.reaction-quick-actions { display: flex; flex-wrap: wrap; gap: 4px; opacity: 1; }
+.reaction-quick { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 999px; padding: 3px 7px; line-height: 1.2; font-size: 18px; min-width: 31px; min-height: 29px; box-shadow: 0 2px 6px rgba(31, 42, 68, .06); transition: transform .12s ease, background .12s ease, border-color .12s ease; }
+.reaction-quick:hover, .reaction-quick:focus-visible { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, white); transform: translateY(-1px) scale(1.04); }
 .reaction-quick.mine { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 45%, white); }
-.reaction-more-wrap { position: relative; }
-.reaction-more { position: absolute; z-index: 25; top: calc(100% + 5px); left: 0; width: min(270px, calc(100vw - 70px)); padding: 8px; border: 1px solid var(--line); border-radius: 13px; background: #fff; box-shadow: 0 12px 30px rgba(31,42,68,.16); display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; max-height: 175px; overflow-y: auto; }
+.reaction-more-wrap { position: relative; display: inline-flex; }
+.reaction-more { position: absolute; z-index: 25; bottom: calc(100% + 7px); left: 0; width: min(290px, calc(100vw - 48px)); padding: 8px; border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: 0 12px 30px rgba(31,42,68,.16); display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; max-height: 200px; overflow-y: auto; animation: reaction-pop .14s ease-out both; }
 .reaction-more[hidden] { display: none !important; }
 .reaction-more .emoji-choice { font-size: 19px; padding: 5px 0; }
 .message-reaction-area:empty { display: none; }
-@media (hover: hover) and (pointer: fine) {
-  .message-reaction-area .reaction-quick-actions { opacity: .65; }
-  .message:hover .reaction-quick-actions, .message:focus-within .reaction-quick-actions { opacity: 1; }
-}
+@keyframes reaction-pop { from { opacity: 0; transform: translateY(-4px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.edit-message-button { border: 0; border-radius: 7px; padding: 3px 6px; background: var(--accent-soft); color: var(--accent); font-size: 10.5px; font-weight: 800; }
+.edit-message-button:hover { background: color-mix(in srgb, var(--accent) 15%, white); }
+.message-edited { display: block; align-self: flex-start; margin: 0 3px 0; color: var(--muted); font-size: 10.5px; line-height: 1.25; font-style: italic; }
+.message.mine .message-edited { align-self: flex-end; }
+.cancel-edit-button { border: 1px solid #dfe5f3; padding: 9px 12px; border-radius: 12px; background: #fff; color: var(--muted); font-size: 12px; font-weight: 700; }
+.cancel-edit-button:hover { background: #fff0f0; color: var(--danger); }
+.send-button:disabled { cursor: wait; opacity: .7; }
 @media (max-width: 620px) {
   .emoji-picker { width: min(330px, calc(100vw - 36px)); }
   .emoji-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); }
   .message-body { max-width: min(520px, 82%); }
-  .reaction-quick-actions { opacity: 1; }
-}
-
-
-/* ---------- Extra micro-interaction effects ---------- */
-.emoji-toggle,
-.emoji-choice,
-.reaction-quick,
-.reaction-pill,
-.emoji-category,
-.emoji-close {
-	-webkit-tap-highlight-color: transparent;
-	transition:
-		transform 140ms ease,
-		background-color 140ms ease,
-		border-color 140ms ease,
-		box-shadow 140ms ease,
-		color 140ms ease;
-}
-
-.emoji-picker:not([hidden]) {
-	transform-origin: bottom left;
-	animation: emoji-picker-enter 180ms cubic-bezier(.2, .75, .25, 1) both;
-}
-
-.reaction-more:not([hidden]) {
-	transform-origin: top left;
-	animation: reaction-picker-enter 150ms cubic-bezier(.2, .75, .25, 1) both;
-}
-
-.reaction-pill:hover {
-	transform: translateY(-1px);
-	box-shadow: 0 4px 12px rgba(31, 42, 68, .1);
-}
-
-.reaction-pill.mine {
-	box-shadow: 0 3px 10px rgba(59, 109, 240, .1);
-}
-
-.reaction-quick:active,
-.emoji-choice:active,
-.emoji-toggle:active,
-.emoji-category:active {
-	transform: scale(.92);
-}
-
-.reaction-pill.just-reacted,
-.reaction-quick.is-reacting {
-	animation: reaction-pop 260ms cubic-bezier(.2, .8, .25, 1.25);
-}
-
-.emoji-choice.is-selected {
-	background: var(--accent-soft);
-	animation: emoji-tap 220ms ease-out;
-}
-
-@keyframes emoji-picker-enter {
-	from { opacity: 0; transform: translateY(8px) scale(.96); }
-	to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes reaction-picker-enter {
-	from { opacity: 0; transform: translateY(-4px) scale(.97); }
-	to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes reaction-pop {
-	0% { transform: scale(.82); }
-	65% { transform: scale(1.16); }
-	100% { transform: scale(1); }
-}
-
-@keyframes emoji-tap {
-	0% { transform: scale(.85); }
-	70% { transform: scale(1.14); }
-	100% { transform: scale(1); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-	.emoji-picker:not([hidden]),
-	.reaction-more:not([hidden]),
-	.reaction-pill.just-reacted,
-	.reaction-quick.is-reacting,
-	.emoji-choice.is-selected {
-		animation: none !important;
-	}
-	.emoji-toggle,
-	.emoji-choice,
-	.reaction-quick,
-	.reaction-pill,
-	.emoji-category,
-	.emoji-close {
-		transition: none !important;
-	}
+  .reaction-more { width: min(270px, calc(100vw - 42px)); grid-template-columns: repeat(7, minmax(0, 1fr)); }
 }
