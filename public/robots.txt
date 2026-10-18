@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://anonymous-chat-19rm-sigma.vercel.app/sitemap.xml
