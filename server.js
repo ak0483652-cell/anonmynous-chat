@@ -17,8 +17,12 @@ const publicHistoryClearMs = Number.isFinite(Number(process.env.PUBLIC_HISTORY_C
 const contentTypes = {
 	".css": "text/css; charset=utf-8",
 	".html": "text/html; charset=utf-8",
-	".js": "text/javascript; charset=utf-8"
+	".js": "text/javascript; charset=utf-8",
+	".svg": "image/svg+xml",
+	".png": "image/png"
 };
+// Browser /favicon.ico maangta hai, use PNG icon se pura karte hain.
+const staticFiles = ["index.html", "script.js", "style.css", "config.js", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png"];
 
 function send(socket, message) {
 	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -959,15 +963,22 @@ async function handleMessage(socket, payload) {
 }
 
 const server = createServer(async (request, response) => {
-	const pathname = new URL(request.url, "http://localhost").pathname;
+	let pathname;
+	try {
+		pathname = new URL(request.url, "http://localhost").pathname;
+	} catch {
+		response.writeHead(400);
+		response.end("Bad request");
+		return;
+	}
 	if (pathname === "/health") {
 		response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
 		response.end(JSON.stringify({ status: "ok", online: clients.size, ai: aiEnabled }));
 		return;
 	}
 
-	const fileName = pathname === "/" ? "index.html" : pathname.slice(1);
-	if (!["index.html", "script.js", "style.css", "config.js"].includes(fileName)) {
+	const fileName = pathname === "/" ? "index.html" : pathname === "/favicon.ico" ? "favicon-32.png" : pathname.slice(1);
+	if (!staticFiles.includes(fileName)) {
 		response.writeHead(404);
 		response.end("Not found");
 		return;
@@ -992,7 +1003,13 @@ const server = createServer(async (request, response) => {
 // maxPayload 8192: Turnstile token (2048) ya Firebase ID token (~1.5-2KB) ke liye jagah.
 const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: 8192 });
 server.on("upgrade", (request, socket, head) => {
-	if (new URL(request.url, "http://localhost").pathname !== "/ws") {
+	let wsPath = "";
+	try {
+		wsPath = new URL(request.url, "http://localhost").pathname;
+	} catch {
+		// bad URL
+	}
+	if (wsPath !== "/ws") {
 		socket.destroy();
 		return;
 	}
