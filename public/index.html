@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -105,7 +104,7 @@
                 <textarea id="message-input" rows="1" maxlength="600" placeholder="Type a message here..." required></textarea>
                 <div class="composer-footer">
                     <span class="composer-hint" id="composer-hint">Connecting to server...</span>
-                    <div class="composer-controls"><span class="char-count" id="char-count">0 / 600</span><button class="send-button" type="submit" aria-label="Send message"><span>Send</span><span class="send-arrow">↑</span></button></div>
+                    <div class="composer-controls"><span class="char-count" id="char-count">0 / 600</span><button class="cancel-edit-button" id="cancel-edit" type="button" hidden>Cancel</button><button class="send-button" type="submit" aria-label="Send message"><span id="send-button-label">Send</span><span class="send-arrow">↑</span></button></div>
                 </div>
             </form>
             <footer class="chat-footer">Stay anonymous. Do not share your phone number, address, or payment details.</footer>
