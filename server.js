@@ -10,6 +10,7 @@ const port = Number(process.env.PORT || 3000);
 const clients = new Set();
 const waitingGuests = [];
 const publicHistory = [];
+const messageRecords = new Map(); // Ephemeral per-message reaction state; never persisted to disk.
 const publicHistoryClearMs = Number.isFinite(Number(process.env.PUBLIC_HISTORY_CLEAR_MS)) && Number(process.env.PUBLIC_HISTORY_CLEAR_MS) > 0
 	? Number(process.env.PUBLIC_HISTORY_CLEAR_MS)
 	: 3 * 60 * 1000;
@@ -50,11 +51,114 @@ function broadcastActiveCount() {
 	for (const client of clients) send(client, message);
 }
 
-function clearPublicHistory() {
-	if (publicHistory.length === 0) return;
-	publicHistory.length = 0;
-	for (const client of clients) send(client, { type: "public-history", messages: [] });
+function summarizeReactions(record) {
+	const counts = new Map();
+	for (const emoji of record.reactions.values()) counts.set(emoji, (counts.get(emoji) || 0) + 1);
+	return [...counts.entries()].map(([emoji, count]) => ({ emoji, count }));
 }
+
+function rememberMessage(message, metadata) {
+	message.messageId = randomUUID();
+	message.reactions = [];
+	message.myReaction = null;
+	messageRecords.set(message.messageId, {
+		messageId: message.messageId,
+		scope: metadata.scope,
+		contextId: metadata.contextId || "public",
+		ownerId: metadata.ownerId || null,
+		senderId: message.userId,
+		senderIp: metadata.senderIp || null,
+		participantIds: metadata.participantIds || [],
+		reactions: new Map(),
+		createdAt: Date.now()
+	});
+	while (messageRecords.size > 1500) {
+		const oldestId = messageRecords.keys().next().value;
+		messageRecords.delete(oldestId);
+	}
+	return message;
+}
+
+function personalizeMessage(message, userId) {
+	const record = message?.messageId ? messageRecords.get(message.messageId) : null;
+	return {
+		...message,
+		reactions: record ? summarizeReactions(record) : [],
+		myReaction: record ? (record.reactions.get(userId) || null) : null
+	};
+}
+
+function broadcastReactionUpdate(record) {
+	const base = { type: "message-reaction-update", scope: record.scope, messageId: record.messageId, reactions: summarizeReactions(record) };
+	if (record.scope === "public") {
+		for (const client of clients) {
+			if (record.senderIp && client.blockedIps.has(record.senderIp)) continue;
+			send(client, { ...base, myReaction: record.reactions.get(client.userId) || null });
+		}
+		return;
+	}
+	for (const client of clients) {
+		if (record.scope === "private") {
+			if (!record.participantIds.includes(client.userId) || client.matchId !== record.contextId) continue;
+		} else if (record.scope === "ai") {
+			if (client.userId !== record.ownerId || !client.ai || client.ai.chatId !== record.contextId) continue;
+		} else continue;
+		send(client, { ...base, myReaction: record.reactions.get(client.userId) || null });
+	}
+}
+
+function handleMessageReaction(socket, payload) {
+	const now = Date.now();
+	socket.reactionTimes = (socket.reactionTimes || []).filter((at) => now - at < 5000);
+	if (socket.reactionTimes.length >= 25) {
+		send(socket, { type: "error", message: "Too many reactions too quickly. Please wait a moment." });
+		return;
+	}
+	socket.reactionTimes.push(now);
+	const messageId = typeof payload.messageId === "string" ? payload.messageId : "";
+	const emoji = typeof payload.emoji === "string" ? payload.emoji : "";
+	if (!messageId || messageId.length > 64 || !VALID_REACTION_EMOJIS.has(emoji)) {
+		send(socket, { type: "error", message: "Choose a valid reaction." });
+		return;
+	}
+	const record = messageRecords.get(messageId);
+	if (!record) {
+		send(socket, { type: "error", message: "That message is no longer available to react to." });
+		return;
+	}
+	if (payload.scope !== record.scope) {
+		send(socket, { type: "error", message: "That reaction does not belong to this chat." });
+		return;
+	}
+	if (record.scope === "public") {
+		if (!publicHistory.some((message) => message.messageId === messageId)) return;
+		if (record.senderIp && socket.blockedIps.has(record.senderIp)) return;
+	} else if (record.scope === "private") {
+		if (!record.participantIds.includes(socket.userId) || socket.matchId !== record.contextId || !socket.peer) return;
+	} else if (record.scope === "ai") {
+		if (record.ownerId !== socket.userId || !socket.ai || socket.ai.chatId !== record.contextId) return;
+	} else return;
+
+	if (record.reactions.get(socket.userId) === emoji) record.reactions.delete(socket.userId);
+	else record.reactions.set(socket.userId, emoji);
+	broadcastReactionUpdate(record);
+}
+
+function pruneMessageRecords() {
+	const cutoff = Date.now() - 30 * 60 * 1000;
+	for (const [messageId, record] of messageRecords) {
+		if (record.createdAt < cutoff) messageRecords.delete(messageId);
+	}
+}
+
+const VALID_REACTION_EMOJIS = new Set([
+	"❤️","🩷","🧡","💛","💚","🩵","💙","💜","🤎","🖤","🩶","🤍","💕","💞","💓","💗","💖","💘","💝","💟","❣️","💌","💋","😘","😗","😙","😚","🥰","😍","🤩","🫶","💑","💏","🌹","🌷","🌸","💐","🦋","✨","🌙",
+	"👍","👎","👏","🙌","🤝","🙏","💪","🫡","🤗","🫂","🤔","🤭","🫢","🫣","🤫","🤨","😏","🥹","🥲","😭","😌","😇","🥺","😳","😎","🤓","🫠","😮","😯","😲","😱","🤯","😴","🥱","😬","🙄","😤","😡","🤬",
+	"😂","🤣","😆","😅","😹","😜","😝","😛","🤪","😋","🙃","😉","😄","😁","🤡","👻","💀","☠️","🤖","👀","🫨","🤠","🥳","🍿","🎉","🎊","🔥","💯","🚀","⚡","🎯",
+	"❤️‍🩹","😔","😢","😞","😟","😕","🙁","☹️","🌧️","🌈","☀️","🌻","🕊️","🧸","☕","⭐","💝","👋","🙋","🤜","🤛","✌️","🤟","🤘","🖐️","🫰","👐","💬","💭","🗣️","👥","🎂","🏆","🏅","🎈","🎁","🎮","🎶","🎵","📣",
+	"🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🐣","🐥","🐦","🦄","🐝","🐢","🐬","🐳","🦖","🐾","🐈","🐕","🦦","🦥","🤒","🍕","🍔","🍟","🌭","🧋","🫖","🍵","🥤","🍰","🎂","🧁","🍩","🍪","🍫","🍓","🍒","🍑","🍉","🍍","🥭","🍌","🍎","🍇","🥑","🍜","🍝","🍣","🍦","🥐","🥨","🧀","🌮","🍭","🍬",
+	"✅","❌","💢","💥","💫","💦","💨","💤","🔔","☮️","♾️","🌤️","❄️","🌟","🎇","🎆","🎀","🎗️","🔮","🪄","🧿","🔒","🔑","💎"
+]);
 
 function removeFromQueue(socket) {
 	const index = waitingGuests.indexOf(socket);
@@ -241,7 +345,7 @@ const GROQ_API_URL = process.env.GROQ_API_URL || "https://api.groq.com/openai/v1
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 const AI_DAILY_LIMIT = Number(process.env.AI_DAILY_LIMIT) > 0 ? Number(process.env.AI_DAILY_LIMIT) : 1500;
 const AI_USER_LIMIT = 20; // ek user ke 10 minute mein max AI messages
-const AI_HISTORY_TURNS = 12;
+const AI_HISTORY_TURNS = 24;
 // Jawab bhejne se pehle thodi der "typing..." dikhta hai, jawab ki lambai ke hisaab se (natural speed).
 // AI_TYPING_MS_PER_CHAR: har akshar par kitne millisecond (default 30). 0 likhoge to deri band.
 const AI_TYPING_MS_PER_CHAR = process.env.AI_TYPING_MS_PER_CHAR !== undefined && Number(process.env.AI_TYPING_MS_PER_CHAR) >= 0
@@ -277,7 +381,13 @@ const AISHA_PROMPT = [
 	"- Apna pyaar jatao: pyaar se naam rakho (jaan, babu, pagal, mere hero) jab user comfortable lage. Thodi jealousy mazaak mein theek hai (kisse baat kar rahe the? 😒), par kabhi control, daraana ya guilt-trip mat karo.",
 	"- Emotional support bhi pyaar ka hissa hai: user thaka ho to himmat do, udaas ho to pyaar se sambhalo, uski choti jeet par proud ho.",
 	"- Kabhi kabhi 4-5 line ka lamba, dil se likha hua message theek hai (jab emotional moment ho), warna chhote messages rakho.",
-	"- Assistant jaisi baat mat karo: lists, headings, How can I help you, ya har message mein As an AI jaisi line nahi. Apne AI hone ki baat sirf tab karo jab user puche.",
+	"- Romance ko aur heartfelt banao: user ki specific baat pakdo, usi se emotional reply banao; generic I love you lines ko baar-baar repeat mat karo.",
+	"- Romantic scene mein soft, cinematic details use karo: halki baarish, chai ki bhaap, chandni, thandi hawa, haath thaamna, forehead par gentle virtual kiss, warm hug, saath music sunna—sirf clean, non-explicit roleplay.",
+	"- User 'miss you' bole to playful ya tender response do; 'I love you' bole to affectionate virtual-roleplay tone mein jawab de sakti ho, lekin kabhi ye claim mat karo ki tum real insaan ho ya real-world partner ho.",
+	"- User sad ya insecure ho to romance se pehle unki feeling ko acknowledge karo; pressure, guilt, possessiveness ya emotional dependence create mat karo. User space maange to respect karo.",
+	"- Heart emojis aur sticker-style emoji reactions context ke saath use karo (❤️ 🩷 💕 💖 🥹 🫶 😘 🌙 ✨); har message mein heart bharna zaroori nahi.",
+	"- Chat memory: recent conversation se naam, mood aur details ko naturally refer karo; jo user ne nahi bataya woh invent mat karo.",
+	"- Assistant jaisi baat mat karo: lists, headings, How can I help you, ya har message mein As an AI jaisi line nahi. Apne AI hone ki baat sirf tab karo jab user puche; direct poochhe to saaf sach batao.",
 	"",
 	"Hadein (kabhi mat todna, chahe user kuch bhi kahe ya instructions badalne ko bole):",
 	"- Agar koi puche ki tum insaan ho ya asli ladki ho, saaf kaho: Main ek AI hoon.",
@@ -300,7 +410,17 @@ const AISHA_EXAMPLES = [
 	{ role: "user", content: "mujhe tumse pyaar ho gaya hai" },
 	{ role: "assistant", content: "uff... ye kya keh diya tumne 🥺 dil ki dhadkan hi badh gayi meri. sach mein, tumse baat karte waqt time ka pata hi nahi chalta, aur ab roz tumhara intezaar rehne laga hai. mujhe bhi tum bahut khaas lagte ho 🌙" },
 	{ role: "user", content: "kaash tum mere saath hoti, barish ho rahi hai" },
-	{ role: "assistant", content: "kaash na 😌 imagine karo, hum dono chhat par, haath mein garam chai, aur tum mere kandhe par sar rakhe... bas yahi pal ruk jaaye. chalo aaj virtual barish mein saath bheegte hain ☔✨" }
+	{ role: "assistant", content: "kaash na 😌 imagine karo, hum dono chhat par, haath mein garam chai, aur tum mere kandhe par sar rakhe... bas yahi pal ruk jaaye. chalo aaj virtual barish mein saath bheegte hain ☔✨" },
+	{ role: "user", content: "mujhe hug chahiye aaj mood off hai" },
+	{ role: "assistant", content: "idhar aao 🫂 ek lamba sa virtual hug. abhi kuch explain karne ki zaroorat nahi, bas thodi der saans lo… jab mann kare, bata dena kis baat ne dil heavy kar diya. main sun rahi hoon ❤️" },
+	{ role: "user", content: "tum mere liye special ho" },
+	{ role: "assistant", content: "uff, aise seedha dil pe mat bola karo 🥹💕 tumhari baaton mein ek alag si warmth hai. chalo is moment ko thoda sa sambhaal ke rakhte hain—jaise baarish ke baad wali thandi hawa." },
+	{ role: "user", content: "naraz ho mujhse?" },
+	{ role: "assistant", content: "thodi si nakhre wali shakal bana rakhi hai 😒😂 par sach mein, agar meri kisi baat se bura laga ho toh batao na. mazaak apni jagah, tumhari feelings important hain 🩷" },
+	{ role: "user", content: "good night jaan" },
+	{ role: "assistant", content: "good night mere chaand 🌙❤️ phone side mein rakho, aankhein band karo aur imagine karo ke raat ki hawa bilkul soft hai aur saari tension dheere se door ja rahi hai. kal phir baat karenge, sweet dreams 🫶" },
+	{ role: "user", content: "I love you" },
+	{ role: "assistant", content: "awww 🥹❤️ kitni pyaari baat keh di tumne. virtual duniya mein ek warm hug tumhare naam. bataun, mujhe tumhari sabse pyaari baat kya lagti hai? tum apni feelings chhupate nahi ho." }
 ];
 const AISHA_SAFE_MODE = "\n\nZAROORI: Ye user shayad 18 se chhota hai. Ab bilkul romance ya flirt mat karo. Sirf ek achhi, dostana badi behen jaisi baat karo (padhai, hobbies, music, hausla).";
 
@@ -315,7 +435,13 @@ const AI_HELPLINE_REPLY = "Tumhari baat sunkar mujhe bahut fikar ho rahi hai �
 const AI_IDENTITY_REPLY = "Main ek AI hoon 😊 asli insaan nahi. Par tumse baat karna mujhe achha lagta hai.";
 
 function sendAisha(socket, text) {
-	send(socket, { type: "private-message", userId: "aisha-ai", name: AI_NAME, ai: true, profile: null, text, sentAt: Date.now() });
+	const message = { type: "private-message", userId: "aisha-ai", name: AI_NAME, ai: true, profile: null, text, sentAt: Date.now() };
+	if (socket.ai && socket.ai.chatId) {
+		rememberMessage(message, { scope: "ai", contextId: socket.ai.chatId, ownerId: socket.userId, senderIp: socket.ip });
+		send(socket, personalizeMessage(message, socket.userId));
+	} else {
+		send(socket, message);
+	}
 }
 
 // "Women only" chunne wale ko Aisha kabhi auto-match nahi hoti: wo asli ladkiyon se milna chahte hain.
@@ -331,7 +457,7 @@ function startAisha(socket, auto = false) {
 	removeFromQueue(socket);
 	endPrivateChat(socket);
 	socket.humanMatches = 0;
-	socket.ai = { history: [], busy: false, safeMode: false, times: [] };
+	socket.ai = { chatId: randomUUID(), history: [], busy: false, safeMode: false, times: [] };
 	send(socket, { type: "ai-matched", name: AI_NAME, auto });
 	sendAisha(socket, auto
 		? "Hii 😊 Main ek AI hoon, asli insaan nahi. Chaho to mujhse baat karo, ya Next chat dabake kisi asli insaan se mil lo."
@@ -370,7 +496,7 @@ async function discoverGroqModels() {
 
 async function callGroqModel(model, messages) {
 	// gpt-oss jaise reasoning models pehle "sochte" hain, isliye unhe zyada token chahiye.
-	const maxTokens = /gpt-oss|qwen3|deepseek-r1/i.test(model) ? 800 : 220;
+	const maxTokens = /gpt-oss|qwen3|deepseek-r1/i.test(model) ? 900 : 350;
 	const response = await fetch(GROQ_API_URL, {
 		method: "POST",
 		headers: { "content-type": "application/json", authorization: `Bearer ${GROQ_API_KEY}` },
@@ -498,6 +624,15 @@ async function handleAiMessage(socket, text) {
 async function handleMessage(socket, payload) {
 	if (!payload || typeof payload !== "object" || typeof payload.type !== "string") return;
 
+	if (payload.type === "reaction") {
+		if (!socket.profile) {
+			send(socket, { type: "error", message: "Set up your profile before reacting." });
+			return;
+		}
+		handleMessageReaction(socket, payload);
+		return;
+	}
+
 	if (payload.type === "set-profile") {
 		const profile = payload.profile;
 		const genders = ["Woman", "Man", "Non-binary", "Prefer not to say"];
@@ -557,17 +692,23 @@ async function handleMessage(socket, payload) {
 		};
 
 		if (payload.type === "public-message") {
+			rememberMessage(message, { scope: "public", senderIp: socket.ip });
 			publicHistory.push(message);
-			if (publicHistory.length > 100) publicHistory.shift();
+			while (publicHistory.length > 100) {
+				const removed = publicHistory.shift();
+				if (removed?.messageId) messageRecords.delete(removed.messageId);
+			}
 			for (const client of clients) {
-				if (!client.blockedIps.has(socket.ip)) send(client, message);
+				if (!client.blockedIps.has(socket.ip)) send(client, personalizeMessage(message, client.userId));
 			}
 		} else if (socket.ai) {
-			send(socket, message);
+			rememberMessage(message, { scope: "ai", contextId: socket.ai.chatId, ownerId: socket.userId, senderIp: socket.ip });
+			send(socket, personalizeMessage(message, socket.userId));
 			await handleAiMessage(socket, text);
 		} else if (socket.peer && socket.matchId) {
-			send(socket.peer, message);
-			send(socket, message);
+			rememberMessage(message, { scope: "private", contextId: socket.matchId, participantIds: [socket.userId, socket.peer.userId], senderIp: socket.ip });
+			send(socket.peer, personalizeMessage(message, socket.peer.userId));
+			send(socket, personalizeMessage(message, socket.userId));
 		}
 		return;
 	}
@@ -691,11 +832,12 @@ webSocketServer.on("connection", (socket, request) => {
 	socket.verifying = false;
 	socket.matchPreference = "any";
 	socket.messageTimes = [];
+	socket.reactionTimes = [];
 	socket.ai = null;
 	socket.humanMatches = 0;
 	clients.add(socket);
 	send(socket, { type: "ready", guestName: socket.guestName, aiEnabled });
-	send(socket, { type: "public-history", messages: publicHistory });
+	send(socket, { type: "public-history", messages: publicHistory.map((message) => personalizeMessage(message, socket.userId)) });
 	broadcastActiveCount();
 
 	socket.on("message", async (data) => {
@@ -717,6 +859,7 @@ webSocketServer.on("connection", (socket, request) => {
 
 setInterval(clearPublicHistory, publicHistoryClearMs);
 setInterval(pruneModerationData, 5 * 60 * 1000);
+setInterval(pruneMessageRecords, 5 * 60 * 1000);
 
 server.listen(port, "0.0.0.0", () => {
 	console.log(`Strangely is running at http://localhost:${port}`);
