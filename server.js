@@ -80,6 +80,7 @@ function rememberMessage(message, metadata) {
 		senderId: message.userId,
 		senderIp: metadata.senderIp || null,
 		participantIds: metadata.participantIds || [],
+		message, // Keep the source message object so authorized edits update shared state.
 		reactions: new Map(),
 		createdAt: Date.now()
 	});
@@ -153,6 +154,84 @@ function handleMessageReaction(socket, payload) {
 	if (record.reactions.get(socket.userId) === emoji) record.reactions.delete(socket.userId);
 	else record.reactions.set(socket.userId, emoji);
 	broadcastReactionUpdate(record);
+}
+
+function broadcastEditedMessage(record) {
+	const message = record.message;
+	const update = {
+		type: "message-edited",
+		scope: record.scope,
+		messageId: record.messageId,
+		text: message.text,
+		edited: true,
+		editedAt: message.editedAt
+	};
+	if (record.scope === "public") {
+		for (const client of clients) {
+			if (record.senderIp && client.blockedIps.has(record.senderIp)) continue;
+			send(client, update);
+		}
+		return;
+	}
+	for (const client of clients) {
+		if (record.scope === "private") {
+			if (!record.participantIds.includes(client.userId) || client.matchId !== record.contextId) continue;
+		} else if (record.scope === "ai") {
+			if (client.userId !== record.ownerId || !client.ai || client.ai.chatId !== record.contextId) continue;
+		} else continue;
+		send(client, update);
+	}
+}
+
+function handleMessageEdit(socket, payload) {
+	const now = Date.now();
+	socket.editTimes = (socket.editTimes || []).filter((at) => now - at < 5000);
+	if (socket.editTimes.length >= 12) {
+		send(socket, { type: "error", message: "Too many edits too quickly. Please wait a moment." });
+		return;
+	}
+	socket.editTimes.push(now);
+
+	const messageId = typeof payload.messageId === "string" ? payload.messageId : "";
+	const text = typeof payload.text === "string" ? payload.text.trim() : "";
+	if (!messageId || messageId.length > 64 || !text || text.length > 600) {
+		send(socket, { type: "error", message: "Edited messages must contain 1–600 characters." });
+		return;
+	}
+	const record = messageRecords.get(messageId);
+	if (!record || !record.message) {
+		send(socket, { type: "error", message: "That message is no longer available to edit." });
+		return;
+	}
+	if (record.senderId !== socket.userId || payload.scope !== record.scope) {
+		send(socket, { type: "error", message: "You can only edit your own message in its original chat." });
+		return;
+	}
+	if (record.scope === "public") {
+		if (!publicHistory.some((message) => message.messageId === messageId)) {
+			send(socket, { type: "error", message: "That public message is no longer available to edit." });
+			return;
+		}
+	} else if (record.scope === "private") {
+		if (!record.participantIds.includes(socket.userId) || socket.matchId !== record.contextId || !socket.peer) {
+			send(socket, { type: "error", message: "That private chat has ended." });
+			return;
+		}
+	} else if (record.scope === "ai") {
+		if (record.ownerId !== socket.userId || !socket.ai || socket.ai.chatId !== record.contextId) {
+			send(socket, { type: "error", message: "That AI conversation is no longer available." });
+			return;
+		}
+	} else return;
+
+	if (record.message.text === text) {
+		send(socket, { type: "message-edited", scope: record.scope, messageId, text, edited: Boolean(record.message.edited), editedAt: record.message.editedAt || null });
+		return;
+	}
+	record.message.text = text;
+	record.message.edited = true;
+	record.message.editedAt = Date.now();
+	broadcastEditedMessage(record);
 }
 
 function pruneMessageRecords() {
@@ -635,6 +714,15 @@ async function handleAiMessage(socket, text) {
 async function handleMessage(socket, payload) {
 	if (!payload || typeof payload !== "object" || typeof payload.type !== "string") return;
 
+	if (payload.type === "edit-message") {
+		if (!socket.profile) {
+			send(socket, { type: "error", message: "Set up your profile before editing messages." });
+			return;
+		}
+		handleMessageEdit(socket, payload);
+		return;
+	}
+
 	if (payload.type === "reaction") {
 		if (!socket.profile) {
 			send(socket, { type: "error", message: "Set up your profile before reacting." });
@@ -844,10 +932,11 @@ webSocketServer.on("connection", (socket, request) => {
 	socket.matchPreference = "any";
 	socket.messageTimes = [];
 	socket.reactionTimes = [];
+	socket.editTimes = [];
 	socket.ai = null;
 	socket.humanMatches = 0;
 	clients.add(socket);
-	send(socket, { type: "ready", guestName: socket.guestName, aiEnabled });
+	send(socket, { type: "ready", userId: socket.userId, guestName: socket.guestName, aiEnabled });
 	send(socket, { type: "public-history", messages: publicHistory.map((message) => personalizeMessage(message, socket.userId)) });
 	broadcastActiveCount();
 
