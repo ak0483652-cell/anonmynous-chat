@@ -978,7 +978,8 @@ const server = createServer(async (request, response) => {
 	}
 
 	const fileName = pathname === "/" ? "index.html" : pathname === "/favicon.ico" ? "favicon-32.png" : pathname.slice(1);
-	if (!staticFiles.includes(fileName)) {
+	// Google Search Console ki verification file (googleXXXX.html) bhi allowed hai.
+	if (!staticFiles.includes(fileName) && !/^google[0-9a-f]{8,}\.html$/.test(fileName)) {
 		response.writeHead(404);
 		response.end("Not found");
 		return;
