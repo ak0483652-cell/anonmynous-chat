@@ -51,6 +51,17 @@ function broadcastActiveCount() {
 	for (const client of clients) send(client, message);
 }
 
+// Clear the ephemeral public room history on the configured interval.
+// Also remove reaction records for those public messages so stale reactions
+// cannot be applied after the message history has been cleared.
+function clearPublicHistory() {
+	if (publicHistory.length === 0) return;
+	const removedIds = new Set(publicHistory.map((message) => message.messageId).filter(Boolean));
+	publicHistory.length = 0;
+	for (const messageId of removedIds) messageRecords.delete(messageId);
+	for (const client of clients) send(client, { type: "public-history", messages: [] });
+}
+
 function summarizeReactions(record) {
 	const counts = new Map();
 	for (const emoji of record.reactions.values()) counts.set(emoji, (counts.get(emoji) || 0) + 1);
