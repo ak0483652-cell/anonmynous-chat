@@ -646,7 +646,13 @@ const server = createServer(async (request, response) => {
 	}
 
 	try {
-		const content = await readFile(join(publicDirectory, fileName));
+		// Files pehle public/ folder mein dhundho, na mile to root mein (dono layout chalte hain).
+		let content;
+		try {
+			content = await readFile(join(publicDirectory, "public", fileName));
+		} catch {
+			content = await readFile(join(publicDirectory, fileName));
+		}
 		response.writeHead(200, { "content-type": contentTypes[extname(fileName)] });
 		response.end(content);
 	} catch {
