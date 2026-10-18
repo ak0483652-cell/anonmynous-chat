@@ -117,6 +117,7 @@ function renderAuthUi() {
 	authGooglePanel.hidden = authMode !== "google";
 	if (authMode === "google") {
 		const email = firebaseUser?.email;
+		googleStatus.style.color = "";
 		googleStatus.textContent = email ? `Signed in as ${email}. Only you can see this.` : "Sign in with your Gmail account. Your email is never shown to other people.";
 		googleSignIn.textContent = email ? "Use a different Gmail" : "Continue with Google";
 		googleSignOut.hidden = !email;
@@ -134,12 +135,19 @@ function setAuthMode(mode) {
 	if (authMode === "google") loadFirebase().then(renderAuthUi);
 }
 
+function showGoogleError(text) {
+	googleStatus.textContent = text;
+	googleStatus.style.color = "var(--danger)";
+	showToast(text);
+}
+
 async function signInWithGoogle() {
 	googleSignIn.disabled = true;
+	googleStatus.style.color = "";
 	try {
 		const api = await loadFirebase();
 		if (!api) {
-			showToast("Gmail sign-in is not set up yet.");
+			showGoogleError("Gmail sign-in could not load. Check your internet and Firebase keys in config.js, then refresh.");
 			return;
 		}
 		const { GoogleAuthProvider, signInWithPopup, signOut } = api.module;
@@ -149,18 +157,29 @@ async function signInWithGoogle() {
 		if (!/@gmail\.com$/i.test(result.user.email || "")) {
 			await signOut(api.auth);
 			firebaseUser = null;
-			showToast("Please use a Gmail (@gmail.com) account.");
+			showGoogleError("Please use a Gmail (@gmail.com) account.");
 		} else {
 			firebaseUser = result.user;
+			showToast(`Signed in as ${result.user.email}. Now fill gender and age, then press Save profile.`);
 		}
 	} catch (error) {
-		const code = String(error?.code || "");
-		if (code === "auth/unauthorized-domain") showToast("Add this website in Firebase > Authentication > Settings > Authorized domains.");
-		else if (code === "auth/popup-blocked") showToast("Popup was blocked. Allow popups and try again.");
-		else if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") showToast("Gmail sign-in failed. Please try again.");
+		const code = String(error?.code || error?.message || "unknown");
+		console.error("Gmail sign-in error:", error);
+		if (code === "auth/unauthorized-domain") showGoogleError("This website is not in Firebase Authorized domains (Authentication > Settings).");
+		else if (code === "auth/operation-not-allowed") showGoogleError("Google sign-in is not enabled in Firebase (Authentication > Sign-in method > Google).");
+		else if (code === "auth/popup-blocked") showGoogleError("Popup was blocked. Allow popups for this site and try again.");
+		else if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") showGoogleError("Sign-in window closed before finishing. Try again and wait for it to close by itself. (" + code + ")");
+		else if (code === "auth/network-request-failed") showGoogleError("Network problem during Gmail sign-in. Please try again.");
+		else showGoogleError("Gmail sign-in failed (" + code + ").");
 	} finally {
 		googleSignIn.disabled = false;
+		const keepError = googleStatus.style.color !== "";
+		const message = googleStatus.textContent;
 		renderAuthUi();
+		if (keepError) {
+			googleStatus.textContent = message;
+			googleStatus.style.color = "var(--danger)";
+		}
 	}
 }
 
@@ -663,6 +682,7 @@ function connect() {
 			aiEnabled = Boolean(message.aiEnabled);
 			googleEnabled = Boolean(message.googleEnabled);
 			renderAuthUi();
+			if (googleEnabled) loadFirebase();
 			document.querySelector("#ai-offer").hidden = !aiEnabled;
 			guestNameElement.textContent = guestName;
 			guestAvatar.textContent = guestName.slice(-1);
