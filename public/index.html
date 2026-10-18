@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -92,6 +93,14 @@
             </section>
 
             <form class="composer" id="message-form">
+                <div class="composer-emoji-wrap">
+                    <button class="emoji-toggle" id="emoji-toggle" type="button" aria-expanded="false" aria-controls="emoji-picker">😊 Emojis</button>
+                    <div class="emoji-picker" id="emoji-picker" hidden aria-label="Choose an emoji">
+                        <div class="emoji-picker-heading"><strong>Choose an emoji</strong><button class="emoji-close" id="emoji-close" type="button" aria-label="Close emoji picker">×</button></div>
+                        <div class="emoji-categories" id="emoji-categories" role="tablist" aria-label="Emoji categories"></div>
+                        <div class="emoji-grid" id="emoji-grid" aria-label="Emoji choices"></div>
+                    </div>
+                </div>
                 <label class="sr-only" for="message-input">Write a message</label>
                 <textarea id="message-input" rows="1" maxlength="600" placeholder="Type a message here..." required></textarea>
                 <div class="composer-footer">
