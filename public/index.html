@@ -15,6 +15,7 @@
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <link rel="stylesheet" href="wallet.css"><script src="wallet-client.js"></script>
+    <link rel="stylesheet" href="reels.css">
 </head>
 <body>
     <div class="app-shell">
@@ -35,6 +36,7 @@
                     <span class="mode-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 01-11.6 7.1L3 21l1.9-5.4A8 8 0 1121 12z"/></svg></span><span class="mode-copy"><strong>One-to-one</strong><small>Private chat with one person</small></span>
                 </button>
             </nav>
+            <button class="reels-entry" type="button" data-open-reels><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>Reels</button>
 
             <div class="sidebar-bottom">
                 <div class="safety-note"><span class="safety-icon">!</span><p><strong>Stay safe</strong><br>Do not share your phone number, address, or payment details.</p></div>
@@ -152,6 +154,7 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
     <script src="script.js" defer></script>
+    <script src="reels.js" defer></script>
     <script>
     // Sirf look ke liye: har naam ko apna "mask" rang do, aur searching state CSS ko batao.
     (function () {
