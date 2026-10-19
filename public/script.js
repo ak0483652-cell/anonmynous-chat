@@ -195,6 +195,39 @@ async function getGoogleToken() {
 	}
 }
 
+// Reels yahan se login lete hain (reels.js). Chat ke login ko nahi chhedta.
+window.strangelyAuth = {
+	getToken: getGoogleToken,
+	async signIn() {
+		try {
+			const api = await loadFirebase();
+			if (!api) {
+				showToast("Gmail sign-in load nahi ho paya. Internet check karo aur refresh karo.");
+				return "";
+			}
+			const { GoogleAuthProvider, signInWithPopup, signOut } = api.module;
+			const provider = new GoogleAuthProvider();
+			provider.setCustomParameters({ prompt: "select_account" });
+			const result = await signInWithPopup(api.auth, provider);
+			if (!/@gmail\.com$/i.test(result.user.email || "")) {
+				await signOut(api.auth);
+				firebaseUser = null;
+				showToast("Please use a Gmail (@gmail.com) account.");
+				return "";
+			}
+			firebaseUser = result.user;
+			renderAuthUi();
+			return await result.user.getIdToken();
+		} catch (error) {
+			const code = String(error?.code || "");
+			if (code === "auth/popup-blocked") showToast("Popup block ho gaya. Is site ke liye popups allow karo.");
+			else if (code === "auth/unauthorized-domain") showToast("Ye website Firebase Authorized domains mein nahi hai.");
+			else if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") showToast("Gmail sign-in fail ho gaya (" + (code || "unknown") + ").");
+			return "";
+		}
+	}
+};
+
 authTabs.forEach((tab) => tab.addEventListener("click", () => setAuthMode(tab.dataset.auth)));
 googleSignIn.addEventListener("click", signInWithGoogle);
 googleSignOut.addEventListener("click", async () => {
