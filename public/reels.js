@@ -10,11 +10,37 @@
 	const MAX_VIDEO_MB = 80;
 	const MAX_VIDEO_SECONDS = 120;
 
+	// Data saver: user jo quality chune, saari reels usi mein chalti hain jab tak wo badle.
+	// Purani reels ko kuch nahi hota: sirf video ke URL ka transform hissa badalta hai (database same rehta hai).
+	const QUALITIES = [
+		{ key: "480", label: "480p", name: "Kam data", width: 480, q: "q_auto" },
+		{ key: "720", label: "720p", name: "Zyada data (HD)", width: 720, q: "q_auto" }
+	];
+	const DEFAULT_QUALITY = "480";
+	const QUALITY_KEY = "strangely_reels_quality";
+
+	function loadQuality() {
+		try {
+			const saved = localStorage.getItem(QUALITY_KEY);
+			if (QUALITIES.some((item) => item.key === saved)) return saved;
+		} catch {
+			// storage band ho to default
+		}
+		return DEFAULT_QUALITY;
+	}
+
+	function qualityUrl(url) {
+		const item = QUALITIES.find((entry) => entry.key === state.quality) || QUALITIES[0];
+		return String(url).replace(/\/video\/upload\/[^/]+\/(reels\/)/, `/video/upload/${item.q},w_${item.width},c_limit,vc_h264/$1`);
+	}
+
 	const state = {
 		built: false,
 		open: false,
 		reels: [],
 		next: null,
+		exhausted: false, // true = feed ki saari reels aa chuki hain
+		quality: loadQuality(),
 		loading: false,
 		muted: true,
 		me: { signedIn: false, admin: false, uploads: false },
@@ -165,8 +191,28 @@
 		signInButton.type = "button";
 		signInButton.hidden = true;
 		const muteButton = iconButton(ICONS.mute, "Unmute", "reels-mute");
-		right.append(signInButton, addButton, muteButton);
+		const qualityButton = h("button", "reels-quality", "");
+		qualityButton.type = "button";
+		qualityButton.setAttribute("aria-label", "Video quality (data saver)");
+		right.append(signInButton, addButton, qualityButton, muteButton);
 		top.append(closeButton, title, right);
+
+		const qualityMenu = h("div", "reels-quality-menu");
+		qualityMenu.hidden = true;
+		qualityMenu.setAttribute("role", "menu");
+		const menuTitle = h("p", "quality-title", "Data saver");
+		qualityMenu.appendChild(menuTitle);
+		for (const item of QUALITIES) {
+			const option = h("button", "quality-option");
+			option.type = "button";
+			option.dataset.key = item.key;
+			option.append(h("strong", "", item.label), h("span", "", item.name));
+			option.addEventListener("click", () => {
+				setQuality(item.key);
+				qualityMenu.hidden = true;
+			});
+			qualityMenu.appendChild(option);
+		}
 
 		const status = h("div", "reels-status");
 		const statusText = h("span", "reels-status-text");
@@ -180,11 +226,20 @@
 		status.append(statusText, retry);
 		status.hidden = true;
 
-		stage.append(scroller, top, status);
+		stage.append(scroller, top, status, qualityMenu);
 		overlay.append(stage);
 		document.body.appendChild(overlay);
 
-		Object.assign(ui, { overlay, stage, scroller, status, statusText, retry, addButton, signInButton, muteButton, closeButton });
+		Object.assign(ui, { overlay, stage, scroller, status, statusText, retry, addButton, signInButton, muteButton, closeButton, qualityButton, qualityMenu });
+
+		qualityButton.addEventListener("click", () => {
+			qualityMenu.hidden = !qualityMenu.hidden;
+		});
+		// Menu ke bahar tap karne par band ho jaye
+		stage.addEventListener("click", (event) => {
+			if (!qualityMenu.hidden && !event.target.closest(".reels-quality-menu, .reels-quality")) qualityMenu.hidden = true;
+		});
+		renderQuality();
 
 		closeButton.addEventListener("click", closeOverlay);
 		muteButton.addEventListener("click", () => setMuted(!state.muted));
@@ -225,12 +280,15 @@
 					if (entry.isIntersecting && state.open) {
 						if (!video.getAttribute("src")) video.src = video.dataset.src;
 						video.muted = state.muted;
+						entry.target.classList.add("playing-now");
+						video.loop = !isLastSlide(entry.target); // aakhri reel loop nahi hogi, khatam hote hi pehli pe jayegi
 						const played = video.play();
 						if (played && played.catch) played.catch(() => entry.target.classList.add("paused"));
 						entry.target.classList.remove("paused");
 						const index = Number(entry.target.dataset.index);
 						if (index >= state.reels.length - 3) loadMore();
 					} else {
+						entry.target.classList.remove("playing-now");
 						video.pause();
 					}
 				}
@@ -244,6 +302,56 @@
 		window.addEventListener("popstate", () => {
 			if (state.open && !(history.state && history.state.reels)) hideOverlay();
 		});
+	}
+
+	function renderQuality() {
+		const current = QUALITIES.find((item) => item.key === state.quality) || QUALITIES[0];
+		ui.qualityButton.textContent = current.label;
+		ui.qualityMenu.querySelectorAll(".quality-option").forEach((option) => option.classList.toggle("active", option.dataset.key === state.quality));
+	}
+
+	function setQuality(key) {
+		if (key === state.quality) return;
+		state.quality = key;
+		try {
+			localStorage.setItem(QUALITY_KEY, key);
+		} catch {
+			// ignore
+		}
+		renderQuality();
+		// Saari reels ka URL naya karo. Jo reel abhi chal rahi hai wo usi second se aage chalti rahe.
+		ui.scroller.querySelectorAll(".reel").forEach((slide) => {
+			const reel = state.reels.find((item) => item.id === slide.dataset.id);
+			const video = slide.querySelector("video");
+			if (!reel || !video) return;
+			const newUrl = qualityUrl(reel.videoUrl);
+			video.dataset.src = newUrl;
+			if (!video.getAttribute("src")) return; // door wali reel: jab aayegi tab naya URL lagega
+			const resumeAt = video.currentTime || 0;
+			const wasPlaying = !video.paused;
+			video._tries = 0;
+			slide.classList.remove("failed");
+			video.addEventListener(
+				"loadedmetadata",
+				() => {
+					try {
+						video.currentTime = resumeAt;
+					} catch {
+						// ignore
+					}
+					if (wasPlaying) video.play().catch(() => {});
+				},
+				{ once: true }
+			);
+			video.src = newUrl;
+		});
+		const item = QUALITIES.find((entry) => entry.key === key);
+		toast(`${item.label} (${item.name}) laga diya. Ab saari reels isi mein chalengi.`);
+	}
+
+	// Feed ki aakhri reel? (jab saari reels aa chuki hon)
+	function isLastSlide(slide) {
+		return state.exhausted && slide === ui.scroller.lastElementChild;
 	}
 
 	function setMuted(muted) {
@@ -295,8 +403,19 @@
 		video.setAttribute("playsinline", "");
 		video.setAttribute("webkit-playsinline", "");
 		video.preload = "none";
-		video.dataset.src = reel.videoUrl;
+		video.dataset.src = qualityUrl(reel.videoUrl);
+		video._tries = 0;
 		if (reel.posterUrl) video.poster = reel.posterUrl;
+		// Aakhri reel khatam ho to feed ki pehli reel pe wapas. Baaki reels loop hoti rehti hain.
+		video.addEventListener("ended", () => {
+			const first = ui.scroller.firstElementChild;
+			if (isLastSlide(slide) && first && first !== slide) {
+				ui.scroller.scrollTo({ top: 0, behavior: "auto" });
+			} else {
+				video.currentTime = 0;
+				video.play().catch(() => {});
+			}
+		});
 		video.addEventListener("loadedmetadata", () => {
 			if (video.videoWidth > video.videoHeight) video.classList.add("contain");
 		});
@@ -307,7 +426,20 @@
 			if (video.duration) progress.style.width = `${(video.currentTime / video.duration) * 100}%`;
 		});
 		video.addEventListener("error", () => {
-			if (video.getAttribute("src")) slide.classList.add("failed");
+			if (!video.getAttribute("src")) return;
+			// Nayi quality pehli baar Cloudinary banata hai (kuch second). Isliye 4 baar dobara try karo.
+			if (video._tries < 4) {
+				video._tries += 1;
+				slide.classList.add("buffering");
+				setTimeout(() => {
+					if (video.getAttribute("src")) {
+						video.src = video.dataset.src;
+						if (slide.classList.contains("playing-now")) video.play().catch(() => {});
+					}
+				}, 3000);
+				return;
+			}
+			slide.classList.add("failed");
 		});
 
 		const shade = h("div", "reel-shade");
@@ -468,16 +600,19 @@
 	}
 
 	async function loadMore() {
-		if (state.loading || (state.reels.length > 0 && !state.next)) return;
+		if (state.loading || state.exhausted) return;
 		state.loading = true;
 		if (state.reels.length === 0) showStatus("Loading...");
 		try {
 			const query = state.next ? `?before=${encodeURIComponent(state.next)}` : "";
 			const data = await api(`/api/reels${query}`);
 			state.next = data.next;
+			state.exhausted = !data.next;
 			state.configured = true;
 			state.error = false;
 			appendReels(data.reels);
+			const active = ui.scroller.querySelector(".reel.playing-now video");
+			if (active) active.loop = !isLastSlide(active.closest(".reel"));
 		} catch (error) {
 			if (error.message === "reels_not_configured") state.configured = false;
 			else {
@@ -672,6 +807,7 @@
 				toast("Reel upload ho gayi!");
 				state.reels = [];
 				state.next = null;
+				state.exhausted = false;
 				ui.scroller.replaceChildren();
 				await loadMore();
 			} catch (error) {
