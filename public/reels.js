@@ -992,24 +992,75 @@
 	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
 	else init();
 })();
-// ---- Last reel ke baad pehli reel ----
+// ---- Last reel ke baad pehli reel (swipe, scroll, arrow key, ya reel khatam hone par) ----
 (function () {
-	// 1) Sabse aakhri reel loop na kare, warna "ended" aata hi nahi. Sirf ek reel ho to loop chalta rahe.
+	var lastWrap = 0, lastWheel = 0, arrivedAt = 0, startedAtEnd = false, startY = null;
+
+	function scroller() { return document.querySelector(".reels-scroller"); }
+	function atEnd(s) { return s.scrollTop + s.clientHeight >= s.scrollHeight - 4; }
+
+	function wrap() {
+		var s = scroller();
+		if (!s) return;
+		var slides = s.querySelectorAll(".reel");
+		if (slides.length < 2 || Date.now() - lastWrap < 900) return;
+		lastWrap = Date.now();
+		try { slides[0].querySelector("video").currentTime = 0; } catch (e) {}
+		s.scrollTop = 0;
+	}
+
+	// Sabse aakhri reel loop na kare (warna "ended" nahi aata). Sirf ek reel ho to loop chalta rahe.
 	setInterval(function () {
-		var slides = document.querySelectorAll(".reels-scroller .reel");
+		var s = scroller();
+		if (!s) return;
+		var slides = s.querySelectorAll(".reel");
 		slides.forEach(function (slide, i) {
 			var video = slide.querySelector("video");
 			if (video) video.loop = !(slides.length > 1 && i === slides.length - 1);
 		});
-	}, 500);
-	// 2) Aakhri reel khatam ho to scroll wapas upar (pehli reel), aur wo shuru se chale.
+		// Kab last reel par pahunche (taaki swipe ki inertia se turant wapas na ud jaye)
+		if (atEnd(s)) { if (!arrivedAt) arrivedAt = Date.now(); } else { arrivedAt = 0; }
+	}, 100);
+
+	// 1) Last reel poori chal gayi
 	document.addEventListener("ended", function (event) {
+		var s = scroller();
 		var video = event.target;
-		if (!(video instanceof HTMLVideoElement)) return;
-		var scroller = document.querySelector(".reels-scroller");
-		var slides = scroller ? scroller.querySelectorAll(".reel") : [];
-		if (slides.length < 2 || slides[slides.length - 1] !== video.closest(".reel")) return;
-		try { slides[0].querySelector("video").currentTime = 0; } catch (e) {}
-		scroller.scrollTop = 0;
+		if (!s || !(video instanceof HTMLVideoElement)) return;
+		var slides = s.querySelectorAll(".reel");
+		if (slides[slides.length - 1] === video.closest(".reel")) wrap();
 	}, true);
+
+	// 2) Mouse wheel / trackpad: last reel par pahunchke naya scroll karo
+	document.addEventListener("wheel", function (e) {
+		var s = scroller();
+		var now = Date.now();
+		var freshGesture = now - lastWheel > 200;
+		lastWheel = now;
+		if (s && s.contains(e.target) && e.deltaY > 10 && freshGesture && arrivedAt && now - arrivedAt > 500 && atEnd(s)) wrap();
+	}, { passive: true });
+
+	// 3) Phone: last reel par ungli se upar swipe
+	document.addEventListener("touchstart", function (e) {
+		var s = scroller();
+		startY = e.touches[0].clientY;
+		startedAtEnd = !!(s && s.contains(e.target) && arrivedAt && Date.now() - arrivedAt > 300 && atEnd(s));
+	}, { passive: true });
+	document.addEventListener("touchend", function (e) {
+		var s = scroller();
+		var dy = startY === null ? 0 : startY - e.changedTouches[0].clientY;
+		startY = null;
+		if (s && startedAtEnd && dy > 50 && atEnd(s)) wrap();
+		startedAtEnd = false;
+	}, { passive: true });
+
+	// 4) Keyboard Down arrow
+	document.addEventListener("keydown", function (e) {
+		var s = scroller();
+		if (s && e.key === "ArrowDown" && arrivedAt && Date.now() - arrivedAt > 300 && atEnd(s) && s.offsetParent !== null) {
+			e.preventDefault();
+			e.stopImmediatePropagation(); // reels.js ka apna "agli reel" scroll ruk jaye
+			wrap();
+		}
+	});
 })();
