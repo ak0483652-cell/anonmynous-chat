@@ -1,0 +1,235 @@
+// Strangely wallet dashboard (frontend). Koi library nahi chahiye.
+// public/ folder me daalo aur index.html me <script src="wallet-dashboard.js"></script> jodo.
+(() => {
+	const state = { send: null, credits: null, referralCode: "", rules: null, history: [], signedIn: false, appUrl: location.origin, open: false, warnedLogin: false };
+	const refs = {};
+
+	const css = `
+.sw-chip{position:fixed;top:12px;right:12px;z-index:9999;display:none;align-items:center;gap:6px;padding:8px 14px;border:0;border-radius:999px;background:#1f2937;color:#fff;font:600 14px system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.sw-chip.sw-show{display:inline-flex}
+.sw-overlay{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.55)}
+.sw-overlay.sw-show{display:flex}
+.sw-card{width:100%;max-width:420px;max-height:90vh;overflow:auto;border-radius:18px;background:#fff;color:#111827;font:14px/1.45 system-ui,sans-serif;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.sw-head{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 0}
+.sw-head h2{margin:0;font-size:17px}
+.sw-x{border:0;background:none;font-size:24px;line-height:1;cursor:pointer;color:#6b7280}
+.sw-bal{margin:14px 18px;padding:18px;border-radius:14px;text-align:center;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff}
+.sw-bal b{display:block;font-size:40px;line-height:1.1}
+.sw-bal span{font-size:13px;opacity:.9}
+.sw-sec{padding:0 18px 14px}
+.sw-sec h3{margin:6px 0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280}
+.sw-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9}
+.sw-row:last-child{border-bottom:0}
+.sw-plus{color:#16a34a;font-weight:700;white-space:nowrap}
+.sw-minus{color:#dc2626;font-weight:700;white-space:nowrap}
+.sw-sub{display:block;font-size:12px;color:#9ca3af}
+.sw-ref{display:flex;gap:6px}
+.sw-ref input{flex:1;min-width:0;padding:8px 10px;border:1px solid #d1d5db;border-radius:8px;font-size:13px}
+.sw-ref button{padding:8px 12px;border:0;border-radius:8px;background:#1f2937;color:#fff;font-weight:600;cursor:pointer}
+.sw-msg{margin:0 18px 10px;padding:10px 12px;border-radius:10px;background:#fef3c7;color:#92400e;display:none}
+.sw-msg.sw-show{display:block}
+.sw-empty{color:#9ca3af;padding:8px 0}
+.sw-toast{position:fixed;left:50%;bottom:24px;z-index:10001;transform:translateX(-50%);max-width:90vw;padding:10px 16px;border-radius:999px;background:#111827;color:#fff;font:600 14px system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+@media (prefers-color-scheme:dark){.sw-card{background:#1f2937;color:#f3f4f6}.sw-row{border-color:#374151}.sw-ref input{background:#111827;color:#f3f4f6;border-color:#4b5563}.sw-chip{background:#374151}.sw-ref button{background:#4b5563}}
+`;
+
+	function el(tag, className, text) {
+		const node = document.createElement(tag);
+		if (className) node.className = className;
+		if (text !== undefined) node.textContent = text;
+		return node;
+	}
+
+	function label(reason) {
+		if (reason.startsWith("reel:")) return "Watched a reel";
+		if (reason === "chat-with-woman") return "Chat with a woman";
+		if (reason === "referral-welcome") return "Welcome bonus (referral)";
+		if (reason.startsWith("referral:")) return "Friend joined (referral bonus)";
+		return reason;
+	}
+
+	function toast(text) {
+		const node = el("div", "sw-toast", text);
+		document.body.appendChild(node);
+		setTimeout(() => node.remove(), 3200);
+	}
+
+	function render() {
+		const credits = state.credits;
+		refs.chip.classList.toggle("sw-show", credits !== null);
+		refs.chip.textContent = `🪙 ${credits ?? 0}`;
+		refs.balance.textContent = String(credits ?? 0);
+
+		const r = state.rules;
+		refs.earn.replaceChildren();
+		refs.spend.replaceChildren();
+		if (r) {
+			const line = (parent, text, value, plus) => {
+				const row = el("div", "sw-row");
+				row.append(el("span", "", text), el("span", plus ? "sw-plus" : "sw-minus", value));
+				parent.appendChild(row);
+			};
+			line(refs.earn, "Watch a full reel", `+${r.reel}`, true);
+			line(refs.earn, `Watch a full reel longer than ${r.longReelSec}s`, `+${r.longReel}`, true);
+			line(refs.earn, "Friend joins with your link and chats", `+${r.referrer}`, true);
+			line(refs.spend, `Chat with a woman (after she sends ${r.chatAfterMessages} messages)`, `-${r.chat}`, false);
+		}
+
+		const code = state.referralCode;
+		refs.refBox.style.display = code ? "" : "none";
+		refs.refInput.value = code ? `${state.appUrl}/?ref=${code}` : "";
+		refs.refNote.textContent = r ? `Your friend gets ${r.newUser} credits, you get ${r.referrer} (once, when they first chat with someone).` : "";
+
+		refs.history.replaceChildren();
+		if (!state.signedIn) refs.history.appendChild(el("div", "sw-empty", "Sign in with Gmail to earn and keep credits."));
+		else if (!state.history.length) refs.history.appendChild(el("div", "sw-empty", "No activity yet. Watch a reel to earn your first credits!"));
+		for (const item of state.history) {
+			const row = el("div", "sw-row");
+			const left = el("span", "", label(String(item.reason)));
+			left.appendChild(el("span", "sw-sub", new Date(item.at).toLocaleString()));
+			row.append(left, el("span", item.amount >= 0 ? "sw-plus" : "sw-minus", `${item.amount >= 0 ? "+" : ""}${item.amount}`));
+			refs.history.appendChild(row);
+		}
+	}
+
+	function build() {
+		const style = el("style");
+		style.textContent = css;
+		document.head.appendChild(style);
+
+		refs.chip = el("button", "sw-chip");
+		refs.chip.type = "button";
+		refs.chip.addEventListener("click", open);
+
+		refs.overlay = el("div", "sw-overlay");
+		refs.overlay.addEventListener("click", (event) => { if (event.target === refs.overlay) close(); });
+		const card = el("div", "sw-card");
+		const head = el("div", "sw-head");
+		const close_ = el("button", "sw-x", "×");
+		close_.type = "button";
+		close_.addEventListener("click", close);
+		head.append(el("h2", "", "My credits"), close_);
+
+		refs.msg = el("div", "sw-msg");
+		const bal = el("div", "sw-bal");
+		refs.balance = el("b", "", "0");
+		bal.append(refs.balance, el("span", "", "credits available"));
+
+		const earnSec = el("div", "sw-sec");
+		refs.earn = el("div");
+		earnSec.append(el("h3", "", "How to earn"), refs.earn);
+		const spendSec = el("div", "sw-sec");
+		refs.spend = el("div");
+		spendSec.append(el("h3", "", "Where they are used"), refs.spend);
+
+		refs.refBox = el("div", "sw-sec");
+		const refRow = el("div", "sw-ref");
+		refs.refInput = el("input");
+		refs.refInput.readOnly = true;
+		const copy = el("button", "", "Copy");
+		copy.type = "button";
+		copy.addEventListener("click", async () => {
+			try { await navigator.clipboard.writeText(refs.refInput.value); } catch { refs.refInput.select(); document.execCommand("copy"); }
+			toast("Referral link copied");
+		});
+		refRow.append(refs.refInput, copy);
+		refs.refNote = el("span", "sw-sub");
+		refs.refBox.append(el("h3", "", "Invite friends"), refRow, refs.refNote);
+
+		const histSec = el("div", "sw-sec");
+		refs.history = el("div");
+		histSec.append(el("h3", "", "Recent activity"), refs.history);
+
+		card.append(head, bal, refs.msg, earnSec, spendSec, refs.refBox, histSec);
+		refs.overlay.appendChild(card);
+		document.body.append(refs.chip, refs.overlay);
+		render();
+	}
+
+	function open(message) {
+		state.open = true;
+		refs.msg.textContent = typeof message === "string" ? message : "";
+		refs.msg.classList.toggle("sw-show", typeof message === "string" && message !== "");
+		refs.overlay.classList.add("sw-show");
+		if (state.send) state.send({ type: "get-wallet" });
+		render();
+	}
+
+	function close() {
+		state.open = false;
+		refs.overlay.classList.remove("sw-show");
+	}
+
+	// script.js ke WebSocket onmessage se har server message yahan bhejo.
+	function handle(message) {
+		if (!message || typeof message !== "object") return;
+		switch (message.type) {
+			case "wallet":
+				state.credits = message.credits;
+				state.signedIn = true;
+				if (message.referralCode) state.referralCode = message.referralCode;
+				if (message.rules) state.rules = message.rules;
+				if (message.charged > 0) toast(`-${message.charged} credits (chat with a woman)`);
+				if (state.open && state.send) state.send({ type: "get-wallet" });
+				break;
+			case "wallet-dashboard":
+				if (message.enabled === false) return;
+				state.signedIn = Boolean(message.signedIn);
+				if (message.rules) state.rules = message.rules;
+				if (state.signedIn) {
+					state.credits = message.credits;
+					state.referralCode = message.referralCode || "";
+					state.history = message.history || [];
+				}
+				break;
+			case "reel-reward":
+				if (message.rewarded) toast(`+${message.credits} credits for watching the full reel 🎉`);
+				else if (message.reason === "login-required" && !state.warnedLogin) { state.warnedLogin = true; toast("Sign in with Gmail to earn credits"); }
+				break;
+			case "referral-bonus":
+				toast(message.role === "referrer" ? `A friend joined! +${message.credits} credits` : `Welcome bonus: +${message.credits} credits`);
+				break;
+			case "need-credits":
+				open(message.message);
+				return;
+			default:
+				return;
+		}
+		if (refs.chip) render();
+	}
+
+	// Reel ki <video> ko jodo: sirf poori reel dekhne par server ko "end" jaata hai.
+	function watchVideo(video, reelId) {
+		if (!video || reelId === undefined || reelId === null || video.__swWatch) return;
+		video.__swWatch = true;
+		let started = false, done = false, reachedEnd = false, played = 0, last = null;
+		const send = (phase) => state.send && state.send({ type: "reel-watched", reelId: String(reelId), phase });
+		const check = () => {
+			if (done || !reachedEnd || !isFinite(video.duration) || video.duration <= 0) return;
+			if (played >= video.duration * 0.9) { done = true; send("end"); }
+		};
+		video.addEventListener("play", () => {
+			last = video.currentTime;
+			if (!started) { started = true; send("start"); }
+		});
+		video.addEventListener("seeking", () => { last = null; });
+		video.addEventListener("timeupdate", () => {
+			const t = video.currentTime;
+			if (last !== null) { const delta = t - last; if (delta > 0 && delta < 1.5) played += delta; }
+			last = t;
+			if (isFinite(video.duration) && t >= video.duration - 0.8) reachedEnd = true;
+			check();
+		});
+		video.addEventListener("ended", () => { reachedEnd = true; check(); });
+	}
+
+	function init(options = {}) {
+		if (typeof options.send === "function") state.send = options.send;
+		if (options.appUrl) state.appUrl = String(options.appUrl).replace(/\/+$/, "");
+	}
+
+	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", build);
+	else build();
+
+	window.StrangelyWallet = { init, handle, open, close, watchVideo };
+})();
