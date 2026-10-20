@@ -16,6 +16,8 @@ export const COSTS = {
 	longReelSec: envNumber("LONG_REEL_SECONDS", 50),
 	chat: envNumber("CREDITS_CHAT_WOMAN", 30),        // Woman se chat khatam hone par katega
 	chatAfterMessages: envNumber("CHARGE_AFTER_WOMAN_MESSAGES", 4), // credit tabhi katega jab Woman ke itne messages aa chuke hon
+	// Reel ka kitna hissa dekhna zaroori hai (0.9 = 90%). Server wall-clock se bhi check karta hai.
+	watchFraction: (() => { const v = Number(process.env.REEL_WATCH_FRACTION); return v >= 0.5 && v <= 1 ? v : 0.9; })(),
 	referrer: envNumber("CREDITS_REFERRER", 150),     // old user
 	newUser: envNumber("CREDITS_NEW_USER", 100)       // new user
 };
@@ -37,6 +39,18 @@ async function rpc(name, args) {
 	if (!response.ok) throw new Error(`Supabase ${name} failed (${response.status}): ${(await response.text()).replace(/\s+/g, " ").slice(0, 200)}`);
 	return response.json();
 }
+
+async function restGet(path) {
+	const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: headers(), signal: AbortSignal.timeout(8000) });
+	if (!response.ok) throw new Error(`Supabase read failed (${response.status})`);
+	return response.json();
+}
+
+const publicRules = () => ({
+	reel: COSTS.reel, longReel: COSTS.longReel, longReelSec: COSTS.longReelSec,
+	chat: COSTS.chat, chatAfterMessages: COSTS.chatAfterMessages,
+	referrer: COSTS.referrer, newUser: COSTS.newUser
+});
 
 async function getReel(reelId) {
 	const query = new URLSearchParams({ select: REELS_DURATION_COLUMN, [REELS_ID_COLUMN]: `eq.${reelId}`, limit: "1" });
@@ -86,38 +100,95 @@ export function createWallet({ clients, send }) {
 			socket.credits = wallet.credits;
 			socket.referralCode = wallet.referralCode;
 			socket.pendingReferral = Boolean(wallet.pendingReferral);
-			send(socket, { type: "wallet", credits: wallet.credits, referralCode: wallet.referralCode, chatCost: COSTS.chat });
+			send(socket, { type: "wallet", credits: wallet.credits, referralCode: wallet.referralCode, chatCost: COSTS.chat, rules: publicRules() });
 		} catch (error) {
 			console.error("Wallet login failed:", error.message);
 		}
 	}
 
+	// Reel credit sirf poori reel dekhne par: client "start" bhejta hai, phir "end".
+	// Server khud check karta hai ki start se ab tak reel ki duration (watchFraction) jitna time beet chuka hai.
 	async function handleReelWatched(socket, payload) {
 		if (!walletEnabled) return;
 		if (!socket.uid) {
 			send(socket, { type: "reel-reward", rewarded: false, reason: "login-required" });
 			return;
 		}
+		const reelId = typeof payload.reelId === "string" || typeof payload.reelId === "number" ? String(payload.reelId) : "";
+		if (!/^[\w-]{1,64}$/.test(reelId)) return;
+
+		socket.reelStarts = socket.reelStarts || new Map();
+		if (payload.phase === "start") {
+			if (!socket.reelStarts.has(reelId)) {
+				if (socket.reelStarts.size >= 50) socket.reelStarts.delete(socket.reelStarts.keys().next().value);
+				socket.reelStarts.set(reelId, Date.now());
+			}
+			return;
+		}
+
 		const now = Date.now();
 		socket.reelTimes = (socket.reelTimes || []).filter((at) => now - at < 10000);
 		if (socket.reelTimes.length >= 10) return;
 		socket.reelTimes.push(now);
 
-		const reelId = typeof payload.reelId === "string" || typeof payload.reelId === "number" ? String(payload.reelId) : "";
-		if (!/^[\w-]{1,64}$/.test(reelId)) return;
+		const startedAt = socket.reelStarts.get(reelId);
+		if (!startedAt) {
+			send(socket, { type: "reel-reward", reelId, rewarded: false, reason: "not-started" });
+			return;
+		}
 		try {
 			const reel = await getReel(reelId);
 			if (!reel) {
 				send(socket, { type: "reel-reward", reelId, rewarded: false, reason: "unknown-reel" });
 				return;
 			}
+			const needMs = Math.max(reel.duration || 15, 3) * 1000 * COSTS.watchFraction;
+			const elapsed = Date.now() - startedAt;
+			if (elapsed < needMs) {
+				send(socket, { type: "reel-reward", reelId, rewarded: false, reason: "not-finished", remainingMs: Math.ceil(needMs - elapsed) });
+				return;
+			}
 			const credits = reel.duration > COSTS.longReelSec ? COSTS.longReel : COSTS.reel;
 			const result = await rpc("wallet_reel", { p_uid: socket.uid, p_reel: reelId, p_credits: credits });
+			socket.reelStarts.delete(reelId);
 			socket.credits = result.balance;
 			send(socket, { type: "reel-reward", reelId, rewarded: result.rewarded, credits: result.rewarded ? credits : 0, balance: result.balance });
 		} catch (error) {
 			console.error("Reel reward failed:", error.message);
 			send(socket, { type: "reel-reward", reelId, rewarded: false, reason: "server-error" });
+		}
+	}
+
+	// Dashboard: balance, referral code, rules aur pichli 20 entries.
+	async function handleGetWallet(socket) {
+		if (!walletEnabled) {
+			send(socket, { type: "wallet-dashboard", enabled: false });
+			return;
+		}
+		if (!socket.uid) {
+			send(socket, { type: "wallet-dashboard", enabled: true, signedIn: false, rules: publicRules() });
+			return;
+		}
+		const now = Date.now();
+		if (socket.lastWalletAt && now - socket.lastWalletAt < 1500) return;
+		socket.lastWalletAt = now;
+		try {
+			const uid = encodeURIComponent(socket.uid);
+			const [wallets, log] = await Promise.all([
+				restGet(`wallets?uid=eq.${uid}&select=credits,referral_code`),
+				restGet(`credit_log?uid=eq.${uid}&select=amount,reason,created_at&order=created_at.desc&limit=20`)
+			]);
+			const row = wallets[0];
+			if (!row) return;
+			socket.credits = row.credits;
+			send(socket, {
+				type: "wallet-dashboard", enabled: true, signedIn: true,
+				credits: row.credits, referralCode: row.referral_code,
+				history: log.map((entry) => ({ amount: entry.amount, reason: entry.reason, at: entry.created_at })),
+				rules: publicRules()
+			});
+		} catch (error) {
+			console.error("Wallet dashboard failed:", error.message);
 		}
 	}
 
@@ -160,5 +231,5 @@ export function createWallet({ clients, send }) {
 		}
 	}
 
-	return { blockWomenQueue, loginWallet, handleReelWatched, chargeForChat, claimReferral };
+	return { blockWomenQueue, loginWallet, handleReelWatched, handleGetWallet, chargeForChat, claimReferral };
 }
