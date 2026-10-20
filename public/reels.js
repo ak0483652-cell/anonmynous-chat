@@ -13,8 +13,8 @@
 	// Data saver: user jo quality chune, saari reels usi mein chalti hain jab tak wo badle.
 	// Purani reels ko kuch nahi hota: sirf video ke URL ka transform hissa badalta hai (database same rehta hai).
 	const QUALITIES = [
-		{ key: "480", label: "480p", name: "Kam data", width: 480, q: "q_auto" },
-		{ key: "720", label: "720p", name: "Zyada data (HD)", width: 720, q: "q_auto" }
+		{ key: "480", label: "480p", name: "Low quality", width: 480, q: "q_auto" },
+		{ key: "720", label: "720p", name: "High quality", width: 720, q: "q_auto" }
 	];
 	const DEFAULT_QUALITY = "480";
 	const QUALITY_KEY = "strangely_reels_quality";
