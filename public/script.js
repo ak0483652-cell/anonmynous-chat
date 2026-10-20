@@ -201,7 +201,9 @@ window.strangelyAuth = {
 	async signIn() {
 		try {
 			const api = await loadFirebase();
+			window.strangelyAuth.lastError = "";
 			if (!api) {
+				window.strangelyAuth.lastError = "no-firebase";
 				showToast("Gmail sign-in load nahi ho paya. Internet check karo aur refresh karo.");
 				return "";
 			}
@@ -212,6 +214,7 @@ window.strangelyAuth = {
 			if (!/@gmail\.com$/i.test(result.user.email || "")) {
 				await signOut(api.auth);
 				firebaseUser = null;
+				window.strangelyAuth.lastError = "not-gmail";
 				showToast("Please use a Gmail (@gmail.com) account.");
 				return "";
 			}
@@ -219,7 +222,8 @@ window.strangelyAuth = {
 			renderAuthUi();
 			return await result.user.getIdToken();
 		} catch (error) {
-			const code = String(error?.code || "");
+			const code = String(error?.code || error?.message || "unknown");
+			window.strangelyAuth.lastError = code;
 			if (code === "auth/popup-blocked") showToast("Popup block ho gaya. Is site ke liye popups allow karo.");
 			else if (code === "auth/unauthorized-domain") showToast("Ye website Firebase Authorized domains mein nahi hai.");
 			else if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") showToast("Gmail sign-in fail ho gaya (" + (code || "unknown") + ").");
@@ -706,9 +710,15 @@ function connect() {
 			return;
 		}
 
-		if (message.type === "active-count") {
-			const count = Number.isInteger(message.count) && message.count >= 0 ? message.count : 0;
-			activeCount.textContent = `${count} active`;
+		if (message.type === "active-stats") {
+			// Sirf admin ko aata hai (server ADMIN_EMAILS se pehchanta hai). Baaki users ko ye box dikhta hi nahi.
+			const num = (value) => (Number.isInteger(value) && value >= 0 ? value : 0);
+			const parts = [`F ${num(message.women)}`, `M ${num(message.men)}`];
+			if (num(message.other) > 0) parts.push(`Other ${num(message.other)}`);
+			if (num(message.noProfile) > 0) parts.push(`No profile ${num(message.noProfile)}`);
+			activeCount.textContent = `${num(message.count)} active · ${parts.join(" · ")}`;
+			activeCount.title = "Admin only: F = women, M = men";
+			activeCount.hidden = false;
 		} else if (message.type === "ready") {
 			currentUserId = message.userId || "";
 			guestName = message.guestName;
