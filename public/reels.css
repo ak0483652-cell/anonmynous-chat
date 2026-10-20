@@ -111,3 +111,14 @@ html.reels-lock, html.reels-lock body { overflow: hidden; }
 
 /* Site ke toast messages Reels screen ke upar dikhein (warna sign-in ke errors chhup jaate hain) */
 html .toast { z-index: 3500; }
+
+/* Data saver (quality) */
+.reels-quality { align-self: center; border: 0; border-radius: 16px; padding: 6px 10px; background: #0007; color: #fff; font: inherit; font-weight: 800; font-size: 12.5px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.reels-quality-menu { position: absolute; top: calc(58px + env(safe-area-inset-top)); right: 10px; z-index: 9; width: 210px; background: #fff; color: #1f2a44; border-radius: 14px; padding: 8px; box-shadow: 0 10px 30px #0008; }
+.reels-quality-menu[hidden] { display: none; }
+.quality-title { margin: 4px 8px 6px; font-size: 12px; font-weight: 800; color: #7b86a3; text-transform: uppercase; letter-spacing: 0.04em; }
+.quality-option { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; border: 0; border-radius: 10px; background: transparent; padding: 10px; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.quality-option span { font-size: 12px; color: #7b86a3; }
+.quality-option:hover { background: #f1f4fb; }
+.quality-option.active { background: #e6edff; }
+.quality-option.active strong { color: #3b6df0; }
