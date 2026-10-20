@@ -992,3 +992,24 @@
 	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
 	else init();
 })();
+// ---- Last reel ke baad pehli reel ----
+(function () {
+	// 1) Sabse aakhri reel loop na kare, warna "ended" aata hi nahi. Sirf ek reel ho to loop chalta rahe.
+	setInterval(function () {
+		var slides = document.querySelectorAll(".reels-scroller .reel");
+		slides.forEach(function (slide, i) {
+			var video = slide.querySelector("video");
+			if (video) video.loop = !(slides.length > 1 && i === slides.length - 1);
+		});
+	}, 500);
+	// 2) Aakhri reel khatam ho to scroll wapas upar (pehli reel), aur wo shuru se chale.
+	document.addEventListener("ended", function (event) {
+		var video = event.target;
+		if (!(video instanceof HTMLVideoElement)) return;
+		var scroller = document.querySelector(".reels-scroller");
+		var slides = scroller ? scroller.querySelectorAll(".reel") : [];
+		if (slides.length < 2 || slides[slides.length - 1] !== video.closest(".reel")) return;
+		try { slides[0].querySelector("video").currentTime = 0; } catch (e) {}
+		scroller.scrollTop = 0;
+	}, true);
+})();
