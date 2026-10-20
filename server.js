@@ -4,6 +4,7 @@ import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID, createPublicKey, createVerify } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
+import { createReelsApi } from "./reels-api.js";
 
 const publicDirectory = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 3000);
@@ -22,7 +23,7 @@ const contentTypes = {
 	".png": "image/png"
 };
 // Browser /favicon.ico maangta hai, use PNG icon se pura karte hain.
-const staticFiles = ["index.html", "script.js", "style.css", "config.js", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png"];
+const staticFiles = ["index.html", "script.js", "style.css", "config.js", "reels.js", "reels.css", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png"];
 
 function send(socket, message) {
 	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -99,7 +100,7 @@ async function verifyFirebaseToken(token) {
 		// Sirf Google se, verified Gmail address.
 		if (claims.firebase?.sign_in_provider !== "google.com") return null;
 		if (claims.email_verified !== true || typeof claims.email !== "string" || !/@gmail\.com$/i.test(claims.email)) return null;
-		return { uid: claims.sub };
+		return { uid: claims.sub, email: claims.email.toLowerCase() };
 	} catch (error) {
 		console.error("Firebase token verification failed:", error.message);
 		return null;
@@ -962,6 +963,8 @@ async function handleMessage(socket, payload) {
 	}
 }
 
+const handleReelsApi = createReelsApi({ verifyToken: verifyFirebaseToken });
+
 const server = createServer(async (request, response) => {
 	let pathname;
 	try {
@@ -971,6 +974,9 @@ const server = createServer(async (request, response) => {
 		response.end("Bad request");
 		return;
 	}
+	// Reels APIs (reels-api.js): /api/reels/... aur /api/comments/...
+	if (pathname.startsWith("/api/") && (await handleReelsApi(request, response, pathname))) return;
+
 	if (pathname === "/health") {
 		response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
 		response.end(JSON.stringify({ status: "ok", online: clients.size, ai: aiEnabled }));
