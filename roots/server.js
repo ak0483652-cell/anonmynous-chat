@@ -1077,3 +1077,4 @@ setInterval(pruneMessageRecords, 5 * 60 * 1000);
 server.listen(port, "0.0.0.0", () => {
 	console.log(`Strangely is running at http://localhost:${port}`);
 });
+
