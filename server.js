@@ -108,9 +108,28 @@ async function verifyFirebaseToken(token) {
 }
 // ---------- End Firebase ----------
 
+// Active count sirf admin (ADMIN_EMAILS wale Gmail se sign-in kiye hue) ko jaata hai. Baaki kisi ko kuch nahi bheja jaata.
+const ADMIN_EMAILS = new Set((process.env.ADMIN_EMAILS || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
+
+function activeStats() {
+	const stats = { type: "active-stats", count: clients.size, women: 0, men: 0, other: 0, noProfile: 0 };
+	for (const client of clients) {
+		const gender = client.profile?.gender;
+		if (!gender) stats.noProfile += 1;
+		else if (gender === "Woman") stats.women += 1;
+		else if (gender === "Man") stats.men += 1;
+		else stats.other += 1;
+	}
+	return stats;
+}
+
 function broadcastActiveCount() {
-	const message = { type: "active-count", count: clients.size };
-	for (const client of clients) send(client, message);
+	let stats = null;
+	for (const client of clients) {
+		if (!client.isAdmin) continue;
+		stats = stats || activeStats();
+		send(client, stats);
+	}
 }
 
 // Clear the ephemeral public room history on the configured interval.
@@ -831,6 +850,7 @@ async function handleMessage(socket, payload) {
 			}
 			socket.uid = account.uid;
 			socket.verified = true;
+			socket.isAdmin = Boolean(account.email && ADMIN_EMAILS.has(account.email));
 		}
 
 		// Anonymous entry: is connection par pehli baar profile set ho rahi hai to Turnstile verify zaroori hai.
@@ -853,6 +873,7 @@ async function handleMessage(socket, payload) {
 
 		socket.profile = { gender: profile.gender, age: profile.age, country: profile.country.trim() };
 		send(socket, { type: "profile-saved", profile: socket.profile });
+		broadcastActiveCount();
 		if (socket.peer) {
 			send(socket.peer, { type: "profile-updated", peerName: socket.guestName, peerUserId: socket.userId, peerProfile: socket.profile });
 		}
@@ -1040,6 +1061,7 @@ webSocketServer.on("connection", (socket, request) => {
 	socket.matchId = null;
 	socket.profile = null;
 	socket.verified = false;
+	socket.isAdmin = false;
 	socket.verifying = false;
 	socket.uid = null;
 	socket.matchPreference = "any";
