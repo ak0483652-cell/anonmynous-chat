@@ -96,6 +96,7 @@
 		trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>',
 		mute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4zM17 9l5 6M22 9l-5 6"/></svg>',
 		sound: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4zM16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12"/></svg>',
+		coin: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6.5v11M9.2 9.3c0-1 1.2-1.8 2.8-1.8s2.8.8 2.8 1.8-1.2 1.6-2.8 2-2.8 1-2.8 2 1.2 1.8 2.8 1.8 2.8-.8 2.8-1.8"/></svg>',
 		plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
 		close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
 		flag: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4m0 0h11l-2 4 2 4H5"/></svg>'
@@ -458,6 +459,8 @@
 		caption.hidden = !reel.caption;
 
 		const actions = h("div", "reel-actions");
+		const walletButton = iconButton(ICONS.coin, "Wallet", "reel-wallet");
+		const walletCount = h("span", "reel-count reel-wallet-count", walletLabel());
 		const likeButton = iconButton(ICONS.heart, "Like", "reel-like");
 		const likeCount = h("span", "reel-count", formatCount(reel.likes));
 		const commentButton = iconButton(ICONS.comment, "Comments", "reel-comment");
@@ -471,7 +474,7 @@
 			group.append(button, label);
 			return group;
 		};
-		actions.append(wrap(likeButton, likeCount), wrap(commentButton, commentCount), wrap(shareButton, shareLabel), wrap(deleteButton, h("span", "reel-count", "")));
+		actions.append(wrap(walletButton, walletCount), wrap(likeButton, likeCount), wrap(commentButton, commentCount), wrap(shareButton, shareLabel), wrap(deleteButton, h("span", "reel-count", "")));
 		likeButton.classList.toggle("liked", reel.liked);
 
 		slide.append(video, shade, pauseIcon, spinner, failed, burst, caption, actions, progressWrap);
@@ -505,6 +508,7 @@
 			}, 300);
 		});
 
+		walletButton.addEventListener("click", () => window.StrangelyWallet && window.StrangelyWallet.open());
 		likeButton.addEventListener("click", () => setLike(reel, slide, !reel.liked));
 		commentButton.addEventListener("click", () => openComments(reel, slide));
 		shareButton.addEventListener("click", () => shareReel(reel));
@@ -512,6 +516,16 @@
 
 		return slide;
 	}
+
+	// Wallet button ke neeche: sign-in ho to credits, warna "Wallet"
+	function walletLabel() {
+		const credits = window.StrangelyWallet && window.StrangelyWallet.getCredits ? window.StrangelyWallet.getCredits() : null;
+		return credits === null || credits === undefined ? "Wallet" : formatCount(credits);
+	}
+	window.addEventListener("sw-credits", () => {
+		const text = walletLabel();
+		document.querySelectorAll(".reel-wallet-count").forEach((node) => (node.textContent = text));
+	});
 
 	function renderLike(reel, slide) {
 		slide._refs.likeButton.classList.toggle("liked", reel.liked);
