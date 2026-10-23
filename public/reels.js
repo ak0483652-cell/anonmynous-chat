@@ -393,6 +393,7 @@
 	function slideFor(reel, index) {
 		const slide = h("section", "reel");
 		slide.dataset.id = reel.id;
+		slide.dataset.reelId = reel.id; // wallet-dashboard.js isse reel dekhne par credits deta hai
 		slide.dataset.index = String(index);
 
 		const video = document.createElement("video");
