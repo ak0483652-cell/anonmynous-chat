@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID, createPublicKey, createVerify } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import { createReelsApi } from "./reels-api.js";
+import { createWallet } from "./wallet.js";
 
 const publicDirectory = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 3000);
@@ -23,7 +24,7 @@ const contentTypes = {
 	".png": "image/png"
 };
 // Browser /favicon.ico maangta hai, use PNG icon se pura karte hain.
-const staticFiles = ["index.html", "script.js", "style.css", "config.js", "reels.js", "reels.css", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png"];
+const staticFiles = ["index.html", "script.js", "style.css", "config.js", "reels.js", "reels.css", "wallet-dashboard.js", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png"];
 
 function send(socket, message) {
 	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -807,6 +808,9 @@ async function handleAiMessage(socket, text) {
 async function handleMessage(socket, payload) {
 	if (!payload || typeof payload !== "object" || typeof payload.type !== "string") return;
 
+	// Wallet (credits): get-wallet aur reel-watched yahin handle hote hain (wallet.js).
+	if (wallet.handle(socket, payload)) return;
+
 	if (payload.type === "edit-message") {
 		if (!socket.profile) {
 			send(socket, { type: "error", message: "Set up your profile before editing messages." });
@@ -873,6 +877,7 @@ async function handleMessage(socket, payload) {
 
 		socket.profile = { gender: profile.gender, age: profile.age, country: profile.country.trim() };
 		send(socket, { type: "profile-saved", profile: socket.profile });
+		wallet.onProfile(socket, typeof payload.ref === "string" ? payload.ref : "");
 		broadcastActiveCount();
 		if (socket.peer) {
 			send(socket.peer, { type: "profile-updated", peerName: socket.guestName, peerUserId: socket.userId, peerProfile: socket.profile });
@@ -922,6 +927,7 @@ async function handleMessage(socket, payload) {
 			rememberMessage(message, { scope: "private", contextId: socket.matchId, participantIds: [socket.userId, socket.peer.userId], senderIp: socket.ip });
 			send(socket.peer, personalizeMessage(message, socket.peer.userId));
 			send(socket, personalizeMessage(message, socket.userId));
+			wallet.onPrivateMessage(socket, socket.peer);
 		}
 		return;
 	}
@@ -985,6 +991,7 @@ async function handleMessage(socket, payload) {
 }
 
 const handleReelsApi = createReelsApi({ verifyToken: verifyFirebaseToken });
+const wallet = createWallet({ send, clients, endPrivateChat });
 
 const server = createServer(async (request, response) => {
 	let pathname;
