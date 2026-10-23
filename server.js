@@ -811,6 +811,31 @@ async function handleMessage(socket, payload) {
 	// Wallet (credits): get-wallet aur reel-watched yahin handle hote hain (wallet.js).
 	if (wallet.handle(socket, payload)) return;
 
+	// Browser mein Gmail sign-in pehle se hai par ye WebSocket anonymous tha: token se account jod do (credits ke liye).
+	if (payload.type === "link-account") {
+		if (typeof payload.firebaseToken !== "string" || !payload.firebaseToken || payload.firebaseToken.length > 4000 || socket.verifying) return;
+		if (!socket.uid) {
+			socket.verifying = true;
+			const account = await verifyFirebaseToken(payload.firebaseToken);
+			socket.verifying = false;
+			if (!account) {
+				send(socket, { type: "account-linked", ok: false });
+				return;
+			}
+			const accountBan = bans.get(`uid:${account.uid}`);
+			if (accountBan && accountBan.until > Date.now()) {
+				sendBanned(socket, accountBan);
+				return;
+			}
+			socket.uid = account.uid;
+			socket.isAdmin = Boolean(account.email && ADMIN_EMAILS.has(account.email));
+			broadcastActiveCount();
+		}
+		send(socket, { type: "account-linked", ok: true });
+		wallet.onProfile(socket, typeof payload.ref === "string" ? payload.ref : "");
+		return;
+	}
+
 	if (payload.type === "edit-message") {
 		if (!socket.profile) {
 			send(socket, { type: "error", message: "Set up your profile before editing messages." });
