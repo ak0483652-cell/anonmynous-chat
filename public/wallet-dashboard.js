@@ -101,27 +101,28 @@
 		const existing = findWalletButton();
 		if (existing) {
 			refs.chip.classList.remove("sw-show");
-			existing.textContent = credits !== null ? `Wallet · ${credits}` : "Wallet";
+			existing.textContent = credits !== null && state.signedIn ? `Wallet · ${credits}` : "Wallet";
 		} else {
 			refs.chip.classList.add("sw-show");
-			refs.chip.textContent = credits !== null ? `🪙 ${credits}` : "🪙 Wallet";
+			refs.chip.textContent = credits !== null && state.signedIn ? `🪙 ${credits}` : "🪙 Wallet";
 		}
-		refs.balance.textContent = credits !== null && state.signedIn ? String(credits) : "—";
+		// Guest (ya server se jawab na aaye) to 0 dikhao, "—" nahi.
+		refs.balance.textContent = state.signedIn && credits !== null ? String(credits) : "0";
 
 		const r = state.rules;
 		refs.earn.replaceChildren();
 		refs.spend.replaceChildren();
-		if (r) {
-			const line = (parent, text, value, plus) => {
-				const row = el("div", "sw-row");
-				row.append(el("span", "", text), el("span", plus ? "sw-plus" : "sw-minus", value));
-				parent.appendChild(row);
-			};
-			line(refs.earn, "Watch a full reel", `+${r.reel}`, true);
-			line(refs.earn, `Watch a full reel longer than ${r.longReelSec}s`, `+${r.longReel}`, true);
-			line(refs.earn, "Friend joins with your link and chats", `+${r.referrer}`, true);
-			line(refs.spend, `Chat with a woman (after she sends ${r.chatAfterMessages} messages)`, `-${r.chat}`, false);
-		}
+		const line = (parent, text, value, plus) => {
+			const row = el("div", "sw-row");
+			row.appendChild(el("span", "", text));
+			if (value) row.appendChild(el("span", plus ? "sw-plus" : "sw-minus", value));
+			parent.appendChild(row);
+		};
+		// Rules server se aaye to amounts ke saath, warna bina amount ke (galat number na dikhe).
+		line(refs.earn, "Watch a full reel", r ? `+${r.reel}` : "", true);
+		line(refs.earn, r ? `Watch a full reel longer than ${r.longReelSec}s` : "Watch a long reel for a bigger reward", r ? `+${r.longReel}` : "", true);
+		line(refs.earn, "Friend joins with your link and chats", r ? `+${r.referrer}` : "", true);
+		line(refs.spend, r ? `Chat with a woman (after she sends ${r.chatAfterMessages} messages)` : "Chat with a woman", r ? `-${r.chat}` : "", false);
 
 		const code = state.referralCode;
 		refs.refBox.style.display = code ? "" : "none";
@@ -148,7 +149,7 @@
 
 		refs.chip = el("button", "sw-chip");
 		refs.chip.type = "button";
-		refs.chip.addEventListener("click", open);
+		refs.chip.addEventListener("click", () => open());
 
 		refs.overlay = el("div", "sw-overlay");
 		refs.overlay.addEventListener("click", (event) => { if (event.target === refs.overlay) close(); });
