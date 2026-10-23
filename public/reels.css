@@ -122,3 +122,6 @@ html .toast { z-index: 3500; }
 .quality-option:hover { background: #f1f4fb; }
 .quality-option.active { background: #e6edff; }
 .quality-option.active strong { color: #3b6df0; }
+/* Wallet button (sirf Reels mein, like ke upar, gol) */
+.reel-wallet { background: linear-gradient(135deg, #f59e0b, #ef4444); border-radius: 50%; box-shadow: 0 2px 10px #0006; }
+.reel-wallet svg { width: 22px; height: 22px; filter: none; }
