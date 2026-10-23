@@ -1,235 +1,207 @@
-// Credits / wallet (Supabase). Sirf Gmail (Firebase) se sign-in kiye users ke credits hote hain.
-const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
-const SUPABASE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim(); // sirf Render par, frontend me kabhi nahi
-export const walletEnabled = Boolean(SUPABASE_URL && SUPABASE_KEY);
+// Strangely Wallet (credits) backend. server.js sirf createWallet() ko call karta hai.
+// Wahi Supabase variables jo reels use karte hain: SUPABASE_URL, SUPABASE_SERVICE_KEY.
+// Credits sirf Gmail (Firebase) se sign-in kiye hue users ko milte hain (socket.uid).
+//
+// Optional Render Environment variables (sab ke default neeche hain):
+//   WALLET_REEL_CREDITS, WALLET_LONG_REEL_CREDITS, WALLET_LONG_REEL_SEC,
+//   WALLET_REFERRER_CREDITS, WALLET_NEW_USER_CREDITS,
+//   WALLET_REEL_DAILY_MAX (ek user ke din bhar mein max reel rewards),
+//   WALLET_CHAT_CHARGE=1 (tabhi "Chat with a woman" par credits katenge; default band),
+//   WALLET_CHAT_CREDITS, WALLET_CHAT_AFTER_MESSAGES
 
-const envNumber = (name, fallback) => {
-	const raw = process.env[name];
-	const value = Number(raw);
-	return raw !== undefined && raw !== "" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : fallback;
+import { getReel, isUuid, reelsStoreEnabled } from "./reels-store.js";
+
+const BASE = (process.env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
+const KEY = (process.env.SUPABASE_SERVICE_KEY || "").trim();
+export const walletEnabled = Boolean(BASE && KEY);
+
+const num = (name, fallback) => {
+	const value = Number(process.env[name]);
+	return Number.isInteger(value) && value >= 0 ? value : fallback;
 };
 
-// Rules yahin se (ya Render Environment se) badlo.
-export const COSTS = {
-	reel: envNumber("CREDITS_REEL", 5),               // normal reel
-	longReel: envNumber("CREDITS_LONG_REEL", 8),      // reel 50 sec se lambi
-	longReelSec: envNumber("LONG_REEL_SECONDS", 50),
-	chat: envNumber("CREDITS_CHAT_WOMAN", 30),        // Woman se chat khatam hone par katega
-	chatAfterMessages: envNumber("CHARGE_AFTER_WOMAN_MESSAGES", 4), // credit tabhi katega jab Woman ke itne messages aa chuke hon
-	// Reel ka kitna hissa dekhna zaroori hai (0.9 = 90%). Server wall-clock se bhi check karta hai.
-	watchFraction: (() => { const v = Number(process.env.REEL_WATCH_FRACTION); return v >= 0.5 && v <= 1 ? v : 0.9; })(),
-	referrer: envNumber("CREDITS_REFERRER", 150),     // old user
-	newUser: envNumber("CREDITS_NEW_USER", 100)       // new user
+const RULES = {
+	reel: num("WALLET_REEL_CREDITS", 2),
+	longReel: num("WALLET_LONG_REEL_CREDITS", 5),
+	longReelSec: num("WALLET_LONG_REEL_SEC", 30) || 30,
+	referrer: num("WALLET_REFERRER_CREDITS", 20),
+	newUser: num("WALLET_NEW_USER_CREDITS", 10),
+	chat: num("WALLET_CHAT_CREDITS", 5),
+	chatAfterMessages: num("WALLET_CHAT_AFTER_MESSAGES", 3) || 3
 };
+const REEL_DAILY_MAX = num("WALLET_REEL_DAILY_MAX", 50);
+const CHAT_CHARGE = process.env.WALLET_CHAT_CHARGE === "1";
+const MIN_WATCH_MS = 3000; // isse kam mein "poori reel" nahi maani jaayegi
+const REF_CODE = /^[\w-]{4,32}$/;
 
-// Reel ki duration Supabase ke reels table se aati hai (client par bharosa nahi).
-const REELS_TABLE = process.env.REELS_TABLE || "reels";
-const REELS_ID_COLUMN = process.env.REELS_ID_COLUMN || "id";
-const REELS_DURATION_COLUMN = process.env.REELS_DURATION_COLUMN || "duration"; // seconds
-
-const headers = () => ({ apikey: SUPABASE_KEY, authorization: `Bearer ${SUPABASE_KEY}`, "content-type": "application/json" });
-
-async function rpc(name, args) {
-	const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
-		method: "POST",
-		headers: headers(),
-		body: JSON.stringify(args),
-		signal: AbortSignal.timeout(8000)
+async function call(path, { method = "GET", body } = {}) {
+	const response = await fetch(`${BASE}${path}`, {
+		method,
+		headers: { apikey: KEY, authorization: `Bearer ${KEY}`, "content-type": "application/json" },
+		body: body === undefined ? undefined : JSON.stringify(body),
+		signal: AbortSignal.timeout(10000)
 	});
-	if (!response.ok) throw new Error(`Supabase ${name} failed (${response.status}): ${(await response.text()).replace(/\s+/g, " ").slice(0, 200)}`);
-	return response.json();
+	const text = await response.text();
+	if (!response.ok) throw new Error(`Supabase ${response.status}: ${text.slice(0, 300)}`);
+	return text ? JSON.parse(text) : null;
+}
+const rpc = (name, args) => call(`/rest/v1/rpc/${name}`, { method: "POST", body: args });
+
+const ensureWallet = (uid) => rpc("wallet_ensure", { p_uid: uid });
+const addCredits = (uid, amount, reason, once) => rpc("wallet_add", { p_uid: uid, p_amount: amount, p_reason: reason, p_once: once || null });
+const spendCredits = (uid, amount, reason) => rpc("wallet_spend", { p_uid: uid, p_amount: amount, p_reason: reason });
+
+async function loadHistory(uid) {
+	const rows = await call(`/rest/v1/wallet_ledger?select=reason,amount,created_at&uid=eq.${encodeURIComponent(uid)}&order=created_at.desc&limit=20`);
+	return rows.map((row) => ({ reason: row.reason, amount: row.amount, at: row.created_at }));
 }
 
-async function restGet(path) {
-	const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: headers(), signal: AbortSignal.timeout(8000) });
-	if (!response.ok) throw new Error(`Supabase read failed (${response.status})`);
-	return response.json();
-}
+export function createWallet({ send, clients, endPrivateChat }) {
+	const dailyReels = new Map(); // "uid:YYYY-MM-DD" -> count
+	const matchStates = new Map(); // matchId -> { womanMessages, charged }
 
-const publicRules = () => ({
-	reel: COSTS.reel, longReel: COSTS.longReel, longReelSec: COSTS.longReelSec,
-	chat: COSTS.chat, chatAfterMessages: COSTS.chatAfterMessages,
-	referrer: COSTS.referrer, newUser: COSTS.newUser
-});
+	const today = () => new Date().toISOString().slice(0, 10);
 
-async function getReel(reelId) {
-	const query = new URLSearchParams({ select: REELS_DURATION_COLUMN, [REELS_ID_COLUMN]: `eq.${reelId}`, limit: "1" });
-	const response = await fetch(`${SUPABASE_URL}/rest/v1/${REELS_TABLE}?${query}`, { headers: headers(), signal: AbortSignal.timeout(8000) });
-	if (!response.ok) throw new Error(`Reel lookup failed (${response.status}). REELS_TABLE / column names check karo.`);
-	const rows = await response.json();
-	if (!rows.length) return null;
-	const duration = Number(rows[0][REELS_DURATION_COLUMN]);
-	return { duration: Number.isFinite(duration) ? duration : 0 };
-}
-
-// Woman se match hone par paise wahi deta hai jo Woman nahi hai. Dono Woman ya dono non-Woman: koi nahi.
-export function chatPayer(a, b) {
-	const aWoman = a.profile?.gender === "Woman";
-	const bWoman = b.profile?.gender === "Woman";
-	if (aWoman === bWoman) return null;
-	return aWoman ? b : a;
-}
-
-// Matching ke time: payer ke paas kam se kam chat cost jitne credits hone chahiye.
-export function canAffordChat(a, b) {
-	if (!walletEnabled) return true;
-	const payer = chatPayer(a, b);
-	return !payer || payer.credits >= COSTS.chat;
-}
-
-export function createWallet({ clients, send }) {
-	// "Women only" chunne wala (jo khud Woman nahi) 30 credit ke bina queue me nahi jaa sakta.
-	function blockWomenQueue(socket) {
-		if (!walletEnabled || socket.matchPreference !== "women" || socket.profile?.gender === "Woman" || socket.credits >= COSTS.chat) return false;
-		send(socket, {
-			type: "need-credits",
-			needed: COSTS.chat,
-			balance: socket.credits,
-			signedIn: Boolean(socket.uid),
-			message: socket.uid
-				? `Women se chat ke liye ${COSTS.chat} credits chahiye. Reels dekh kar credits kamao.`
-				: "Women se chat ke liye Gmail se sign-in karo aur credits kamao."
-		});
-		return true;
+	function socketsOf(uid) {
+		return [...clients].filter((client) => client.uid === uid);
 	}
 
-	async function loginWallet(socket, account, ref) {
-		if (!walletEnabled) return;
-		try {
-			const wallet = await rpc("wallet_login", { p_uid: account.uid, p_email: account.email, p_ref: typeof ref === "string" ? ref.slice(0, 32) : null });
-			socket.credits = wallet.credits;
-			socket.referralCode = wallet.referralCode;
-			socket.pendingReferral = Boolean(wallet.pendingReferral);
-			send(socket, { type: "wallet", credits: wallet.credits, referralCode: wallet.referralCode, chatCost: COSTS.chat, rules: publicRules() });
-		} catch (error) {
-			console.error("Wallet login failed:", error.message);
-		}
+	async function pushWallet(socket, extra = {}) {
+		if (!walletEnabled || !socket.uid) return;
+		const wallet = await ensureWallet(socket.uid);
+		send(socket, { type: "wallet", credits: wallet.credits, referralCode: wallet.referral_code, rules: RULES, ...extra });
 	}
 
-	// Reel credit sirf poori reel dekhne par: client "start" bhejta hai, phir "end".
-	// Server khud check karta hai ki start se ab tak reel ki duration (watchFraction) jitna time beet chuka hai.
-	async function handleReelWatched(socket, payload) {
-		if (!walletEnabled) return;
-		if (!socket.uid) {
-			send(socket, { type: "reel-reward", rewarded: false, reason: "login-required" });
-			return;
-		}
-		const reelId = typeof payload.reelId === "string" || typeof payload.reelId === "number" ? String(payload.reelId) : "";
-		if (!/^[\w-]{1,64}$/.test(reelId)) return;
-
-		socket.reelStarts = socket.reelStarts || new Map();
-		if (payload.phase === "start") {
-			if (!socket.reelStarts.has(reelId)) {
-				if (socket.reelStarts.size >= 50) socket.reelStarts.delete(socket.reelStarts.keys().next().value);
-				socket.reelStarts.set(reelId, Date.now());
-			}
-			return;
-		}
-
-		const now = Date.now();
-		socket.reelTimes = (socket.reelTimes || []).filter((at) => now - at < 10000);
-		if (socket.reelTimes.length >= 10) return;
-		socket.reelTimes.push(now);
-
-		const startedAt = socket.reelStarts.get(reelId);
-		if (!startedAt) {
-			send(socket, { type: "reel-reward", reelId, rewarded: false, reason: "not-started" });
-			return;
-		}
-		try {
-			const reel = await getReel(reelId);
-			if (!reel) {
-				send(socket, { type: "reel-reward", reelId, rewarded: false, reason: "unknown-reel" });
-				return;
-			}
-			const needMs = Math.max(reel.duration || 15, 3) * 1000 * COSTS.watchFraction;
-			const elapsed = Date.now() - startedAt;
-			if (elapsed < needMs) {
-				send(socket, { type: "reel-reward", reelId, rewarded: false, reason: "not-finished", remainingMs: Math.ceil(needMs - elapsed) });
-				return;
-			}
-			const credits = reel.duration > COSTS.longReelSec ? COSTS.longReel : COSTS.reel;
-			const result = await rpc("wallet_reel", { p_uid: socket.uid, p_reel: reelId, p_credits: credits });
-			socket.reelStarts.delete(reelId);
-			socket.credits = result.balance;
-			send(socket, { type: "reel-reward", reelId, rewarded: result.rewarded, credits: result.rewarded ? credits : 0, balance: result.balance });
-		} catch (error) {
-			console.error("Reel reward failed:", error.message);
-			send(socket, { type: "reel-reward", reelId, rewarded: false, reason: "server-error" });
-		}
-	}
-
-	// Dashboard: balance, referral code, rules aur pichli 20 entries.
-	async function handleGetWallet(socket) {
+	async function dashboard(socket) {
 		if (!walletEnabled) {
 			send(socket, { type: "wallet-dashboard", enabled: false });
 			return;
 		}
 		if (!socket.uid) {
-			send(socket, { type: "wallet-dashboard", enabled: true, signedIn: false, rules: publicRules() });
+			send(socket, { type: "wallet-dashboard", enabled: true, signedIn: false, rules: RULES });
 			return;
 		}
-		const now = Date.now();
-		if (socket.lastWalletAt && now - socket.lastWalletAt < 1500) return;
-		socket.lastWalletAt = now;
-		try {
-			const uid = encodeURIComponent(socket.uid);
-			const [wallets, log] = await Promise.all([
-				restGet(`wallets?uid=eq.${uid}&select=credits,referral_code`),
-				restGet(`credit_log?uid=eq.${uid}&select=amount,reason,created_at&order=created_at.desc&limit=20`)
-			]);
-			const row = wallets[0];
-			if (!row) return;
-			socket.credits = row.credits;
-			send(socket, {
-				type: "wallet-dashboard", enabled: true, signedIn: true,
-				credits: row.credits, referralCode: row.referral_code,
-				history: log.map((entry) => ({ amount: entry.amount, reason: entry.reason, at: entry.created_at })),
-				rules: publicRules()
-			});
-		} catch (error) {
-			console.error("Wallet dashboard failed:", error.message);
-		}
+		const [wallet, history] = await Promise.all([ensureWallet(socket.uid), loadHistory(socket.uid)]);
+		send(socket, { type: "wallet-dashboard", enabled: true, signedIn: true, credits: wallet.credits, referralCode: wallet.referral_code, rules: RULES, history });
 	}
 
-	// Chat khatam: payer ke 30 credit kato (balance se zyada nahi).
-	async function chargeForChat(socket, peer) {
-		if (!walletEnabled || !peer) return;
-		const payer = chatPayer(socket, peer);
-		if (!payer || !payer.uid) return;
-		// Credit sirf tab katega jab Woman ne is chat me kam se kam 4 messages bheje hon.
-		const woman = payer === socket ? peer : socket;
-		if ((woman.matchMessages || 0) < COSTS.chatAfterMessages) return;
-		try {
-			const result = await rpc("wallet_charge", { p_uid: payer.uid, p_amount: COSTS.chat, p_reason: "chat-with-woman" });
-			if (!result) return;
-			payer.credits = result.balance;
-			send(payer, { type: "wallet", credits: result.balance, charged: result.charged });
-		} catch (error) {
-			console.error("Chat charge failed:", error.message);
+	async function reelWatched(socket, payload) {
+		const reelId = typeof payload.reelId === "string" ? payload.reelId : "";
+		const phase = payload.phase;
+		if (!isUuid(reelId) || (phase !== "start" && phase !== "end")) return;
+		if (!socket.uid) {
+			if (phase === "start") send(socket, { type: "reel-reward", rewarded: false, reason: "login-required" });
+			return;
 		}
+		socket.reelStarts = socket.reelStarts || new Map();
+		if (phase === "start") {
+			if (socket.reelStarts.size >= 50) socket.reelStarts.delete(socket.reelStarts.keys().next().value);
+			socket.reelStarts.set(reelId, Date.now());
+			return;
+		}
+		const startedAt = socket.reelStarts.get(reelId);
+		socket.reelStarts.delete(reelId);
+		if (!startedAt) return;
+		const elapsed = Date.now() - startedAt;
+		if (elapsed < MIN_WATCH_MS) return;
+
+		const dayKey = `${socket.uid}:${today()}`;
+		const count = dailyReels.get(dayKey) || 0;
+		if (count >= REEL_DAILY_MAX) {
+			send(socket, { type: "reel-reward", rewarded: false, reason: "daily-limit" });
+			return;
+		}
+		// Sirf asli reel par reward (nakli id se farming nahi).
+		if (!reelsStoreEnabled || !(await getReel(reelId))) return;
+
+		const amount = elapsed >= RULES.longReelSec * 1000 * 0.9 ? RULES.longReel : RULES.reel;
+		if (amount <= 0) return;
+		const balance = await addCredits(socket.uid, amount, `reel:${reelId}`, `reel:${reelId}`);
+		if (balance < 0) {
+			send(socket, { type: "reel-reward", rewarded: false, reason: "already-rewarded" });
+			return;
+		}
+		dailyReels.set(dayKey, count + 1);
+		send(socket, { type: "reel-reward", rewarded: true, credits: amount });
+		await pushWallet(socket);
 	}
 
-	// Naya user (referral link se aaya) jab pehli baar kisi insaan se connect ho: 150 old + 100 new, sirf ek baar.
-	async function claimReferral(socket) {
-		if (!walletEnabled || !socket.uid || !socket.pendingReferral) return;
-		socket.pendingReferral = false;
-		try {
-			const result = await rpc("wallet_referral", { p_uid: socket.uid, p_referrer_bonus: COSTS.referrer, p_new_bonus: COSTS.newUser });
-			if (!result) return;
-			socket.credits = result.balance;
-			send(socket, { type: "referral-bonus", role: "new", credits: COSTS.newUser, balance: result.balance });
-			for (const client of clients) {
-				if (client.uid === result.referrer) {
-					client.credits = result.referrerBalance;
-					send(client, { type: "referral-bonus", role: "referrer", credits: COSTS.referrer, balance: result.referrerBalance });
-				}
+	// set-profile ke baad: balance bhejo, aur ?ref= code ho to welcome bonus do.
+	async function profileSaved(socket, ref) {
+		if (!walletEnabled || !socket.uid) return;
+		if (typeof ref === "string" && REF_CODE.test(ref) && !socket.refTried) {
+			socket.refTried = true;
+			const referrer = await rpc("wallet_link_referral", { p_uid: socket.uid, p_code: ref });
+			if (referrer && RULES.newUser > 0) {
+				const balance = await addCredits(socket.uid, RULES.newUser, "referral-welcome", "referral-welcome");
+				if (balance >= 0) send(socket, { type: "referral-bonus", role: "invitee", credits: RULES.newUser });
 			}
-		} catch (error) {
-			socket.pendingReferral = true; // dobara try ho sake
-			console.error("Referral claim failed:", error.message);
+		}
+		await pushWallet(socket);
+	}
+
+	async function payReferral(sender) {
+		const referrer = await rpc("wallet_referral_payout", { p_uid: sender.uid });
+		if (!referrer || RULES.referrer <= 0) return;
+		const balance = await addCredits(referrer, RULES.referrer, `referral:${sender.uid}`, `referral:${sender.uid}`);
+		if (balance < 0) return;
+		for (const client of socketsOf(referrer)) {
+			send(client, { type: "referral-bonus", role: "referrer", credits: RULES.referrer });
+			pushWallet(client).catch(() => {});
 		}
 	}
 
-	return { blockWomenQueue, loginWallet, handleReelWatched, handleGetWallet, chargeForChat, claimReferral };
+	async function chargeForWoman(receiver) {
+		const balance = await spendCredits(receiver.uid, RULES.chat, "chat-with-woman");
+		if (balance < 0) {
+			send(receiver, { type: "need-credits", message: `Not enough credits to keep chatting. You need ${RULES.chat} credits. Watch reels to earn more.` });
+			if (receiver.peer) {
+				endPrivateChat(receiver);
+				send(receiver, { type: "private-left" });
+			}
+			return;
+		}
+		await pushWallet(receiver, { charged: RULES.chat });
+	}
+
+	// Private chat mein sender ne message bheja (receiver = uska partner).
+	async function privateMessage(sender, receiver) {
+		if (!walletEnabled) return;
+		if (sender.uid) await payReferral(sender);
+		if (!CHAT_CHARGE || !receiver || !sender.matchId) return;
+		if (sender.profile?.gender !== "Woman" || receiver.profile?.gender === "Woman" || !receiver.uid) return; // guest ko charge nahi
+		let state = matchStates.get(sender.matchId);
+		if (!state) {
+			state = { womanMessages: 0, charged: false };
+			matchStates.set(sender.matchId, state);
+			while (matchStates.size > 2000) matchStates.delete(matchStates.keys().next().value);
+		}
+		state.womanMessages += 1;
+		if (state.charged || state.womanMessages < RULES.chatAfterMessages) return;
+		state.charged = true;
+		await chargeForWoman(receiver);
+	}
+
+	const guard = (promise) => promise.catch((error) => console.error("Wallet error:", error.message));
+
+	return {
+		// true = ye wallet ka message tha aur handle ho gaya
+		handle(socket, payload) {
+			if (payload.type === "get-wallet") {
+				guard(dashboard(socket));
+				return true;
+			}
+			if (payload.type === "reel-watched") {
+				guard(reelWatched(socket, payload));
+				return true;
+			}
+			return false;
+		},
+		onProfile(socket, ref) {
+			guard(profileSaved(socket, ref));
+		},
+		onPrivateMessage(sender, receiver) {
+			guard(privateMessage(sender, receiver));
+		}
+	};
 }
