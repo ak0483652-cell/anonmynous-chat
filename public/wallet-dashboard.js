@@ -51,6 +51,7 @@
 	const css = `
 .sw-chip{position:fixed;top:12px;right:12px;z-index:9999;display:none;align-items:center;gap:6px;padding:8px 14px;border:0;border-radius:999px;background:#1f2937;color:#fff;font:600 14px system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.25)}
 .sw-chip.sw-show{display:inline-flex}
+html.reels-lock .sw-chip{display:none!important}
 .sw-overlay{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.55)}
 .sw-overlay.sw-show{display:flex}
 .sw-card{width:100%;max-width:420px;max-height:90vh;overflow:auto;border-radius:18px;background:#fff;color:#111827;font:14px/1.45 system-ui,sans-serif;box-shadow:0 10px 40px rgba(0,0,0,.35)}
@@ -135,6 +136,7 @@
 		}
 		// Guest (ya server se jawab na aaye) to 0 dikhao, "—" nahi.
 		refs.balance.textContent = state.signedIn && credits !== null ? String(credits) : "0";
+		window.dispatchEvent(new CustomEvent("sw-credits", { detail: { credits: state.signedIn ? credits : null } }));
 
 		const r = state.rules;
 		refs.earn.replaceChildren();
@@ -344,5 +346,5 @@
 	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
 	else start();
 
-	window.StrangelyWallet = { init, handle, open, close, watchVideo };
+	window.StrangelyWallet = { init, handle, open, close, watchVideo, getCredits: () => (state.signedIn ? state.credits : null) };
 })();
