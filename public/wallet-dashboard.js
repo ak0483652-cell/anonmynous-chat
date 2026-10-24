@@ -54,6 +54,7 @@
 .sw-mode{display:flex;align-items:center;justify-content:center;gap:8px;flex:0 0 auto;border:0;border-radius:16px;padding:12px 16px;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;font:inherit;font-weight:800;font-size:14px;cursor:pointer;box-shadow:0 6px 14px rgba(239,68,68,.28)}
 .sw-mode svg{width:18px;height:18px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round}
 .mode-list > .sw-mode{width:100%}
+@media (max-width:820px){body.sw-in-chat .mode-list,body.sw-in-chat .reels-entry{display:none!important}}
 @media (max-width:820px){.mode-list > .sw-mode{width:auto}}
 .sw-overlay{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.55)}
 .sw-overlay.sw-show{display:flex}
@@ -347,8 +348,22 @@
 		refs.mode = button;
 	}
 
+	// One-to-one ya AI chat chal rahi ho to (phone par) upar ke Reels / One-to-one / Wallet buttons chhupao.
+	// "End chat" ya AI badge dikh raha hai = chat chal rahi hai. Wapas dashboard par aate hi buttons phir aa jaate hain.
+	function syncChatMode() {
+		const visible = (id) => { const node = document.getElementById(id); return Boolean(node) && !node.hidden; };
+		document.body.classList.toggle("sw-in-chat", visible("leave-chat") || visible("ai-badge"));
+	}
+	function watchChatMode() {
+		const header = document.querySelector(".header-actions");
+		if (!header) return;
+		new MutationObserver(syncChatMode).observe(header, { attributes: true, attributeFilter: ["hidden"], subtree: true });
+		syncChatMode();
+	}
+
 	function start() {
 		build();
+		watchChatMode();
 		addModeButton();
 		render();
 		autoWire(document);
