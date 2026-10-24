@@ -352,3 +352,9 @@ body[data-state="searching"] .meet { --t: 2.2s; }
 	.send-button { padding: 8px 14px; font-size: 13px; border-radius: 12px; box-shadow: none; }
 	.cancel-edit-button { padding: 7px 10px; font-size: 11px; }
 }
+
+/* ---------- Scroll fix: chat lambi ho to message box (aur keypad) neeche na bhaage; chat area khud scroll kare ---------- */
+.app-shell { min-height: 0; }
+.chat-panel { min-height: 0; overflow: hidden; }
+.conversation { min-height: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; scroll-behavior: auto; }
+.composer { flex: none; }
