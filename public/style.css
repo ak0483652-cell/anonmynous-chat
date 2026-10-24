@@ -222,7 +222,17 @@ body[data-state="searching"] .meet { --t: 2.2s; }
 	.composer { margin: 0 12px; }
 	.chat-footer { display: none; }
 	.composer { margin-bottom: calc(10px + env(safe-area-inset-bottom)); }
-	.match-state h2 { font-size: 22px; }
+	.match-state h2 { font-size: 20px; }
+	/* One-to-one screen: sab kuch (teeno buttons ke saath) ek screen mein, beech mein */
+	.conversation { padding: 10px 14px; }
+	.match-state { width: 100%; max-width: 360px; gap: 9px; padding: 0; }
+	.match-state:not([hidden]) { min-height: 100%; justify-content: center; }
+	.match-state #match-copy { display: none; }
+	.meet { width: 200px; height: 78px; margin-bottom: 0; transform: scale(0.8); transform-origin: center; }
+	.match-preference-control { padding: 8px 14px; }
+	.back-to-room, .cancel-match { padding: 12px; font-size: 14.5px; }
+	.ai-offer { margin-top: 0; }
+	.ai-note { margin-top: 4px !important; font-size: 11px !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
