@@ -15,7 +15,7 @@ const publicHistory = [];
 const messageRecords = new Map(); // Ephemeral per-message reaction state; never persisted to disk.
 const publicHistoryClearMs = Number.isFinite(Number(process.env.PUBLIC_HISTORY_CLEAR_MS)) && Number(process.env.PUBLIC_HISTORY_CLEAR_MS) > 0
 	? Number(process.env.PUBLIC_HISTORY_CLEAR_MS)
-	: 3 * 60 * 1000;
+	: 10 * 60 * 1000;
 const contentTypes = {
 	".css": "text/css; charset=utf-8",
 	".html": "text/html; charset=utf-8",
