@@ -50,8 +50,11 @@
 
 	const css = `
 .sw-chip{position:fixed;top:12px;right:12px;z-index:9999;display:none;align-items:center;gap:6px;padding:8px 14px;border:0;border-radius:999px;background:#1f2937;color:#fff;font:600 14px system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.25)}
-.sw-chip.sw-show{display:inline-flex}
-html.reels-lock .sw-chip{display:none!important}
+.sw-chip,.sw-chip.sw-show{display:none!important}
+.sw-mode{display:flex;align-items:center;justify-content:center;gap:8px;flex:0 0 auto;border:0;border-radius:16px;padding:12px 16px;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;font:inherit;font-weight:800;font-size:14px;cursor:pointer;box-shadow:0 6px 14px rgba(239,68,68,.28)}
+.sw-mode svg{width:18px;height:18px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round}
+.mode-list > .sw-mode{width:100%}
+@media (max-width:820px){.mode-list > .sw-mode{width:auto}}
 .sw-overlay{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;padding:16px;background:rgba(0,0,0,.55)}
 .sw-overlay.sw-show{display:flex}
 .sw-card{width:100%;max-width:420px;max-height:90vh;overflow:auto;border-radius:18px;background:#fff;color:#111827;font:14px/1.45 system-ui,sans-serif;box-shadow:0 10px 40px rgba(0,0,0,.35)}
@@ -127,7 +130,8 @@ html.reels-lock .sw-chip{display:none!important}
 	function render() {
 		const credits = state.credits;
 		const existing = findWalletButton();
-		if (existing) {
+		if (refs.modeText) refs.modeText.textContent = credits !== null && state.signedIn ? String(credits) : "Wallet";
+		if (existing && existing !== refs.mode) {
 			refs.chip.classList.remove("sw-show");
 			existing.textContent = credits !== null && state.signedIn ? `Wallet · ${credits}` : "Wallet";
 		} else {
@@ -328,8 +332,25 @@ html.reels-lock .sw-chip{display:none!important}
 		if (options.appUrl) state.appUrl = String(options.appUrl).replace(/\/+$/, "");
 	}
 
+	// One-to-one ke bagal mein Wallet button
+	function addModeButton() {
+		const list = document.querySelector(".mode-list");
+		if (!list || list.querySelector(".sw-mode")) return;
+		const button = el("button", "sw-mode");
+		button.type = "button";
+		button.setAttribute("data-sw-bound", "1");
+		button.setAttribute("aria-label", "Wallet");
+		button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6.5v11M9.2 9.3c0-1 1.2-1.8 2.8-1.8s2.8.8 2.8 1.8-1.2 1.6-2.8 2-2.8 1-2.8 2 1.2 1.8 2.8 1.8 2.8-.8 2.8-1.8"/></svg>';
+		refs.modeText = el("span", "", "Wallet");
+		button.appendChild(refs.modeText);
+		list.appendChild(button);
+		refs.mode = button;
+	}
+
 	function start() {
 		build();
+		addModeButton();
+		render();
 		autoWire(document);
 		let queued = false;
 		new MutationObserver(() => {
@@ -338,6 +359,7 @@ html.reels-lock .sw-chip{display:none!important}
 			setTimeout(() => {
 				queued = false;
 				autoWire(document);
+				addModeButton();
 				// Wallet button baad me bane to use bhi jod do (render sirf tab, taaki loop na bane).
 				if (!document.querySelector("[data-sw-bound]") && findWalletButton()) render();
 			}, 200);
