@@ -21,10 +21,12 @@ const contentTypes = {
 	".html": "text/html; charset=utf-8",
 	".js": "text/javascript; charset=utf-8",
 	".svg": "image/svg+xml",
-	".png": "image/png"
+	".png": "image/png",
+	".txt": "text/plain; charset=utf-8",
+	".xml": "application/xml; charset=utf-8"
 };
 // Browser /favicon.ico maangta hai, use PNG icon se pura karte hain.
-const staticFiles = ["index.html", "script.js", "style.css", "config.js", "reels.js", "reels.css", "wallet-dashboard.js", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png"];
+const staticFiles = ["index.html", "app.html", "robots.txt", "sitemap.xml", "og-image.png", "script.js", "style.css", "config.js", "reels.js", "reels.css", "wallet-dashboard.js", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png"];
 
 function send(socket, message) {
 	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
