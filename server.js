@@ -15,7 +15,7 @@ const publicHistory = [];
 const messageRecords = new Map(); // Ephemeral per-message reaction state; never persisted to disk.
 const publicHistoryClearMs = Number.isFinite(Number(process.env.PUBLIC_HISTORY_CLEAR_MS)) && Number(process.env.PUBLIC_HISTORY_CLEAR_MS) > 0
 	? Number(process.env.PUBLIC_HISTORY_CLEAR_MS)
-	: 10 * 60 * 1000;
+	: 5 * 60 * 1000; // ab ye har message ki umar hai (default 5 min), poori chat ek saath saaf nahi hoti
 const contentTypes = {
 	".css": "text/css; charset=utf-8",
 	".html": "text/html; charset=utf-8",
@@ -135,15 +135,20 @@ function broadcastActiveCount() {
 	}
 }
 
-// Clear the ephemeral public room history on the configured interval.
-// Also remove reaction records for those public messages so stale reactions
-// cannot be applied after the message history has been cleared.
+// Public room: har message apni umar (publicHistoryClearMs, default 5 min) ke baad hat jata hai.
+// Purane messages ek-ek karke udte hain, naye (pichhle 2-3 min wale) bane rehte hain, taaki users ko chat "saaf hui" na lage.
+// Hatne ke saath unke reaction records bhi hata dete hain, taaki purane message par reaction na lage.
 function clearPublicHistory() {
 	if (publicHistory.length === 0) return;
-	const removedIds = new Set(publicHistory.map((message) => message.messageId).filter(Boolean));
+	const cutoff = Date.now() - publicHistoryClearMs;
+	const keep = publicHistory.filter((message) => message.sentAt >= cutoff);
+	if (keep.length === publicHistory.length) return;
+	for (const message of publicHistory) {
+		if (message.sentAt < cutoff && message.messageId) messageRecords.delete(message.messageId);
+	}
 	publicHistory.length = 0;
-	for (const messageId of removedIds) messageRecords.delete(messageId);
-	for (const client of clients) send(client, { type: "public-history", messages: [] });
+	publicHistory.push(...keep);
+	for (const client of clients) send(client, { type: "public-history", messages: publicHistory.map((message) => personalizeMessage(message, client.userId)) });
 }
 
 function summarizeReactions(record) {
@@ -1127,7 +1132,7 @@ webSocketServer.on("connection", (socket, request) => {
 	});
 });
 
-setInterval(clearPublicHistory, publicHistoryClearMs);
+setInterval(clearPublicHistory, 15 * 1000);
 setInterval(pruneModerationData, 5 * 60 * 1000);
 setInterval(pruneMessageRecords, 5 * 60 * 1000);
 
