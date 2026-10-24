@@ -521,7 +521,8 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL = process.env.GROQ_API_URL || "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 const AI_DAILY_LIMIT = Number(process.env.AI_DAILY_LIMIT) > 0 ? Number(process.env.AI_DAILY_LIMIT) : 1500;
-const AI_USER_LIMIT = 20; // ek user ke 10 minute mein max AI messages
+// Ek user ke 10 minute mein max AI messages. Render Environment mein AI_USER_LIMIT se badal sakte ho (default 60).
+const AI_USER_LIMIT = Number(process.env.AI_USER_LIMIT) > 0 ? Number(process.env.AI_USER_LIMIT) : 60;
 const AI_HISTORY_TURNS = 24;
 // Jawab bhejne se pehle thodi der "typing..." dikhta hai, jawab ki lambai ke hisaab se (natural speed).
 // AI_TYPING_MS_PER_CHAR: har akshar par kitne millisecond (default 30). 0 likhoge to deri band.
