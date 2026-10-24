@@ -361,8 +361,48 @@
 		syncChatMode();
 	}
 
+	// Phone par message bhejne ke baad keypad band na ho: Send dabane se textarea ka focus nahi jaata,
+	// aur agar send ke baad focus chala jaye to wapas laa dete hain.
+	function keepKeyboard() {
+		const form = document.getElementById("message-form");
+		const input = document.getElementById("message-input");
+		if (!form || !input || form.__swKeep) return;
+		form.__swKeep = true;
+		const button = form.querySelector(".send-button");
+		if (button) button.addEventListener("mousedown", (event) => event.preventDefault());
+		form.addEventListener("submit", () => {
+			const had = document.activeElement === input;
+			if (!had) return;
+			[0, 80, 250, 600].forEach((ms) => setTimeout(() => {
+				if (document.activeElement !== input && !input.disabled && (document.activeElement === document.body || !document.activeElement)) input.focus({ preventScroll: true });
+			}, ms));
+		}, true);
+	}
+
+	// Keypad khulne par page ka layout chhota ho (Chrome Android), taaki message box keypad ke upar rahe.
+	function fitKeyboard() {
+		const meta = document.querySelector('meta[name="viewport"]');
+		if (meta && !/interactive-widget/.test(meta.content)) meta.content += ", interactive-widget=resizes-content";
+	}
+
+	// Naya message aaye (ya tum bhejo) to chat apne aap neeche scroll ho, agar tum pehle se neeche ke paas the.
+	function autoScroll() {
+		const box = document.getElementById("conversation");
+		const list = document.getElementById("message-list");
+		if (!box || !list || box.__swScroll) return;
+		box.__swScroll = true;
+		let nearBottom = true;
+		box.addEventListener("scroll", () => { nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 140; }, { passive: true });
+		new MutationObserver(() => { if (nearBottom) requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; }); }).observe(list, { childList: true, subtree: true });
+		const input = document.getElementById("message-input");
+		if (input) input.addEventListener("focus", () => setTimeout(() => { box.scrollTop = box.scrollHeight; }, 300));
+	}
+
 	function start() {
 		build();
+		fitKeyboard();
+		autoScroll();
+		keepKeyboard();
 		watchChatMode();
 		addModeButton();
 		render();
