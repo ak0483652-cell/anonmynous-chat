@@ -1,4 +1,7 @@
 User-agent: *
 Allow: /
+Disallow: /api/
+Disallow: /ws
+Disallow: /health
 
-Sitemap: https://anonymous-chat-19rm-sigma.vercel.app/sitemap.xml
+Sitemap: https://anonmynous-chat-19rm-sigma.vercel.app/sitemap.xml
