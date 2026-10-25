@@ -113,3 +113,149 @@
 	});
 	render();
 })();
+
+// ---------- Reply to message (tap Reply / phone par message ko right swipe) ----------
+// script.js ke renderMessage aur sendToServer ko lapetta hai. Server (server.js) replyTo ka snapshot banakar sabko bhejta hai.
+(function () {
+	"use strict";
+	var form = document.getElementById("message-form");
+	var list = document.getElementById("message-list");
+	var input = document.getElementById("message-input");
+	if (!form || !list || !input) return;
+	var reply = null;
+
+	// Composer ke upar "Replying to ..." bar
+	var bar = document.createElement("div");
+	bar.className = "cx-replybar";
+	bar.hidden = true;
+	var body = document.createElement("div");
+	body.className = "cx-replybar-body";
+	var barName = document.createElement("strong");
+	var barText = document.createElement("span");
+	body.append(barName, barText);
+	var close = document.createElement("button");
+	close.type = "button";
+	close.setAttribute("aria-label", "Cancel reply");
+	close.textContent = "×";
+	close.addEventListener("click", function () { setReply(null); });
+	bar.append(body, close);
+	form.insertBefore(bar, form.firstChild);
+
+	function setReply(r) {
+		reply = r;
+		if (!r) { bar.hidden = true; return; }
+		barName.textContent = "Replying to " + r.who;
+		barText.textContent = r.text;
+		bar.hidden = false;
+		input.focus();
+	}
+
+	function myId() { try { return currentUserId; } catch (e) { return ""; } }
+	function toast(text) { if (typeof window.showToast === "function") window.showToast(text); }
+
+	function startReply(item, message) {
+		if (!message || !message.messageId) { toast("This older message cannot be replied to."); return; }
+		var mine = item.classList.contains("mine");
+		setReply({ id: message.messageId, who: mine ? "yourself" : (message.name || "Guest"), text: String(message.text || "").slice(0, 120) });
+	}
+
+	function jumpTo(id) {
+		var safe = window.CSS && CSS.escape ? CSS.escape(id) : id;
+		var node = list.querySelector('[data-message-id="' + safe + '"]');
+		if (!node) { toast("Original message is no longer available."); return; }
+		node.scrollIntoView({ block: "center", behavior: "smooth" });
+		node.classList.remove("cx-flash");
+		void node.offsetWidth;
+		node.classList.add("cx-flash");
+	}
+
+	function decorate(item, message) {
+		if (!item || item.__cx || !message) return;
+		item.__cx = message;
+		var text = item.querySelector(".message-text");
+		var meta = item.querySelector(".message-meta");
+		if (message.replyTo && text) {
+			var r = message.replyTo;
+			var q = document.createElement("button");
+			q.type = "button";
+			q.className = "cx-quote";
+			var qn = document.createElement("strong");
+			qn.textContent = r.userId && r.userId === myId() ? "You" : (r.name || "Guest");
+			var qt = document.createElement("span");
+			qt.textContent = r.text || "";
+			q.append(qn, qt);
+			q.addEventListener("click", function () { jumpTo(r.messageId); });
+			text.parentNode.insertBefore(q, text);
+		}
+		if (meta && message.messageId) {
+			var btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "cx-reply-btn";
+			btn.textContent = "Reply";
+			btn.title = "Reply to this message";
+			btn.addEventListener("click", function () { startReply(item, message); });
+			meta.append(btn);
+		}
+	}
+
+	if (typeof window.renderMessage === "function") {
+		var origRender = window.renderMessage;
+		window.renderMessage = function (message) {
+			var result = origRender.apply(this, arguments);
+			try { decorate(list.lastElementChild, message); } catch (e) { /* ignore */ }
+			return result;
+		};
+	}
+
+	// Send karte waqt replyTo jodo; bhej diya to bar hata do
+	if (typeof window.sendToServer === "function") {
+		var origSend = window.sendToServer;
+		window.sendToServer = function (msg) {
+			if (reply && msg && (msg.type === "public-message" || msg.type === "private-message")) {
+				msg.replyTo = reply.id;
+				var ok = origSend.apply(this, arguments);
+				if (ok) setReply(null);
+				return ok;
+			}
+			return origSend.apply(this, arguments);
+		};
+	}
+
+	// Mode ya chat badle to purana reply hata do
+	var clearObserver = new MutationObserver(function () { if (reply) setReply(null); });
+	["#room-title", "#service-status"].forEach(function (sel) {
+		var node = document.querySelector(sel);
+		if (node) clearObserver.observe(node, { childList: true, characterData: true, subtree: true });
+	});
+
+	// Phone: message ko right swipe karo to reply
+	var startX = 0, startY = 0, target = null, dx = 0, swiping = false;
+	list.addEventListener("touchstart", function (e) {
+		var item = e.target.closest(".message");
+		if (!item || e.touches.length !== 1) return;
+		target = item; startX = e.touches[0].clientX; startY = e.touches[0].clientY; dx = 0; swiping = false;
+	}, { passive: true });
+	list.addEventListener("touchmove", function (e) {
+		if (!target) return;
+		var t = e.touches[0], mx = t.clientX - startX, my = t.clientY - startY;
+		if (!swiping) {
+			if (Math.abs(my) > 12 && Math.abs(my) > Math.abs(mx)) { target = null; return; }
+			if (mx > 10 && Math.abs(mx) > Math.abs(my)) swiping = true; else return;
+		}
+		dx = Math.max(0, Math.min(mx, 80));
+		target.style.transition = "none";
+		target.style.transform = "translateX(" + dx + "px)";
+	}, { passive: true });
+	function endSwipe() {
+		if (!target) return;
+		var item = target;
+		target = null;
+		item.style.transition = "transform .2s ease";
+		item.style.transform = "";
+		if (swiping && dx >= 55 && item.__cx) startReply(item, item.__cx);
+		swiping = false; dx = 0;
+		setTimeout(function () { item.style.transition = ""; }, 220);
+	}
+	list.addEventListener("touchend", endSwipe);
+	list.addEventListener("touchcancel", endSwipe);
+})();
