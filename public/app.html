@@ -12,6 +12,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="welcome-card.css">
+    <link rel="stylesheet" href="chat-layout.css">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -120,29 +122,45 @@
     </div>
     <dialog class="profile-dialog" id="profile-dialog" aria-labelledby="profile-title">
         <form id="profile-form">
-            <h2 id="profile-title">Set up your profile</h2>
-            <p>Your profile is visible to chat participants. Adults 18+ only. Age and gender are self-reported and not verified.</p>
-            <label for="profile-gender">Gender</label>
-            <select id="profile-gender" name="gender" required>
+            <div class="wc-head">
+                <span class="wc-logo">S</span>
+                <h2 id="profile-title">Welcome to <span class="wc-accent">Strangely</span></h2>
+                <p>Start chatting anonymously, instantly</p>
+            </div>
+
+            <div class="wc-label">I identify as</div>
+            <div class="wc-gender" role="group" aria-label="Gender">
+                <button type="button" class="wc-card" data-gender="Man" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="14" r="5"/><path d="M14 10l6-6M15 4h5v5"/></svg><span>Male</span>
+                </button>
+                <button type="button" class="wc-card" data-gender="Woman" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="5"/><path d="M12 14v7M9 18h6"/></svg><span>Female</span>
+                </button>
+            </div>
+            <div class="wc-more" role="group" aria-label="Other gender options">
+                <button type="button" class="wc-pill" data-gender="Non-binary" aria-pressed="false">Non-binary</button>
+                <button type="button" class="wc-pill" data-gender="Prefer not to say" aria-pressed="false">Prefer not to say</button>
+            </div>
+            <select id="profile-gender" name="gender" class="wc-hidden" tabindex="-1" aria-hidden="true">
                 <option value="">Select gender</option>
                 <option value="Woman">Woman</option>
                 <option value="Man">Man</option>
                 <option value="Non-binary">Non-binary</option>
                 <option value="Prefer not to say">Prefer not to say</option>
             </select>
-            <label for="profile-age">Age</label>
+
+            <label class="wc-label" for="profile-age">My age</label>
             <input id="profile-age" name="age" type="number" min="18" max="99" inputmode="numeric" placeholder="18 or older" required>
-            <label for="profile-country">Country</label>
-            <select id="profile-country" name="country" required>
+            <select id="profile-country" name="country" class="wc-hidden" tabindex="-1" aria-hidden="true">
                 <option value="India">India</option>
             </select>
-            <label>How do you want to enter?</label>
+
+            <div class="wc-label">How do you want to enter?</div>
             <div class="auth-choice" id="auth-choice" role="group" aria-label="Entry method">
                 <button type="button" class="auth-tab active" data-auth="anon">Anonymous</button>
                 <button type="button" class="auth-tab" data-auth="google" id="auth-tab-google" hidden>Gmail</button>
             </div>
             <div id="auth-anon">
-                <!-- Cloudflare Turnstile: YOUR_SITE_KEY ki jagah apni Site Key paste karo -->
                 <div class="cf-turnstile" data-sitekey="0x4AAAAAAFOP50vz-8hw65lK" data-theme="light"></div>
             </div>
             <div id="auth-google" class="auth-google" hidden>
@@ -150,9 +168,12 @@
                 <button type="button" class="google-button" id="google-signin">Continue with Google</button>
                 <button type="button" class="auth-link" id="google-signout" hidden>Sign out</button>
             </div>
-            <button class="save-profile" type="submit">Save profile</button>
+
+            <button class="save-profile" type="submit">Start chatting</button>
+            <p class="wc-terms">Adults 18+ only. Gender and age are self-reported and not verified. Your profile is visible to chat participants.</p>
         </form>
     </dialog>
+    <script src="welcome-card.js"></script>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
     <!-- Audio call (Gmail users, one-to-one, dono ki consent se) -->
@@ -167,6 +188,7 @@
                 super(url, protocols);
                 var ws = this;
                 window.StrangelyCall.init({
+                    mount: ".header-actions",
                     send: function (obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
                 });
                 ws.addEventListener("message", function (event) {
@@ -177,6 +199,7 @@
     })();
     </script>
     <script src="script.js" defer></script>
+    <script src="chat-layout.js" defer></script>
     <script src="reels.js" defer></script>
     <script>
     // Sirf look ke liye: har naam ko apna "mask" rang do, aur searching state CSS ko batao.
