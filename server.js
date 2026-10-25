@@ -7,7 +7,9 @@ import { WebSocket, WebSocketServer } from "ws";
 import { createReelsApi } from "./reels-api.js";
 import { createWallet } from "./wallet.js";
 import { createCallSignaling } from "./call-signaling.js";
+import { createAnalyticsApi } from "./analytics.js";
 
+const handleAnalytics = createAnalyticsApi({ verifyToken: (token) => verifyFirebaseToken(token) });
 const publicDirectory = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 3000);
 const clients = new Set();
@@ -27,7 +29,7 @@ const contentTypes = {
 	".xml": "application/xml; charset=utf-8"
 };
 // Browser /favicon.ico maangta hai, use PNG icon se pura karte hain.
-const staticFiles = ["index.html", "app.html", "robots.txt", "sitemap.xml", "og-image.png", "script.js", "style.css", "config.js", "reels.js", "reels.css", "call.js", "wallet-dashboard.js", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png"];
+const staticFiles = ["index.html", "app.html", "robots.txt", "sitemap.xml", "og-image.png", "script.js", "style.css", "config.js", "reels.js", "reels.css", "call.js", "wallet-dashboard.js", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png", "track.js", "admin-panel.js"];
 
 function send(socket, message) {
 	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -1062,6 +1064,11 @@ const server = createServer(async (request, response) => {
 		response.end("Bad request");
 		return;
 	}
+		}
+	// Traffic analytics (analytics.js)
+	if (pathname.startsWith("/api/") && (await handleAnalytics(request, response, pathname))) return;
+	// Reels APIs (reels-api.js): /api/reels/... aur /api/comments/...
+	if (pathname.startsWith("/api/") && (await handleReelsApi(request, response, pathname))) return;
 	// Reels APIs (reels-api.js): /api/reels/... aur /api/comments/...
 	if (pathname.startsWith("/api/") && (await handleReelsApi(request, response, pathname))) return;
 
