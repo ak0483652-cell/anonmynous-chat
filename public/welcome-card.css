@@ -1,0 +1,58 @@
+/* Welcome / profile card (Knot-style). style.css ko chhuye bina upar se override karta hai. */
+.profile-dialog { width: min(430px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 28px 26px 24px; border-radius: 26px; overflow-y: auto; }
+.profile-dialog form { gap: 0; }
+.wc-hidden { display: none !important; }
+
+.wc-head { text-align: center; margin-bottom: 4px; }
+.wc-logo { display: inline-flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: 14px; background: var(--accent); color: #fff; font-weight: 800; font-size: 22px; margin-bottom: 10px; }
+.profile-dialog .wc-head h2 { font-size: 23px; font-weight: 800; letter-spacing: -0.01em; }
+.wc-accent { color: var(--accent); }
+.profile-dialog .wc-head p { margin: 4px 0 0; font-size: 14px; }
+
+.profile-dialog .wc-label { display: block; margin: 20px 0 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+
+.wc-gender { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.wc-card { height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line); border-radius: 16px; background: var(--pane); color: var(--muted); font-weight: 700; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; transition: transform .15s ease, background .15s ease, border-color .15s ease, color .15s ease; }
+.wc-card svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.wc-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 35%, white); }
+.wc-card[aria-pressed="true"], .wc-pill[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.wc-card[aria-pressed="true"] { box-shadow: 0 8px 20px rgba(59, 109, 240, 0.18); }
+
+.wc-more { display: flex; gap: 8px; margin-top: 8px; }
+.wc-pill { flex: 1; padding: 9px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--pane); color: var(--muted); font-weight: 700; font-size: 12.5px; transition: background .15s ease, border-color .15s ease, color .15s ease; }
+.wc-pill:hover { border-color: color-mix(in srgb, var(--accent) 35%, white); }
+
+.profile-dialog #profile-age { width: 100%; height: 50px; padding: 0 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--pane); font-size: 16px; font-weight: 700; }
+.profile-dialog #profile-age:focus { outline: 0; border-color: var(--accent); background: #fff; box-shadow: 0 0 0 4px var(--accent-soft); }
+
+.profile-dialog .auth-choice { margin: 0 0 10px; }
+.profile-dialog .save-profile { margin-top: 18px; height: 52px; padding: 0; border-radius: 16px; font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; transition: transform .15s ease, background .15s ease; }
+.profile-dialog .save-profile:hover { background: #2f5fe0; transform: translateY(-1px); }
+.profile-dialog .save-profile:active { transform: scale(0.98); }
+.profile-dialog .wc-terms { margin: 12px 0 0; font-size: 11.5px; line-height: 1.5; text-align: center; color: var(--muted); }
+
+@media (max-width: 480px) {
+	.profile-dialog { padding: 22px 18px 18px; border-radius: 22px; }
+	.wc-card { height: 84px; }
+	.profile-dialog .wc-label { margin-top: 16px; }
+}
+
+/* ---------- Animations ---------- */
+.profile-dialog[open] { animation: wc-dialog-in .28s cubic-bezier(.2, .9, .3, 1.1) both; }
+.profile-dialog[open]::backdrop { animation: wc-fade .25s ease both; }
+.wc-head .wc-logo { animation: wc-logo-in .5s cubic-bezier(.2, .9, .3, 1.3) .1s both; }
+.wc-card[aria-pressed="true"] svg { animation: wc-pop .35s cubic-bezier(.3, 1.6, .5, 1); }
+.wc-card:active, .wc-pill:active { transform: scale(.96); }
+.wc-gender .wc-card, .wc-more, .profile-dialog #profile-age, .profile-dialog .save-profile { animation: wc-rise .4s ease both; }
+.wc-gender .wc-card:nth-child(2) { animation-delay: .06s; }
+.wc-more { animation-delay: .1s; }
+.profile-dialog #profile-age { animation-delay: .14s; }
+.profile-dialog .save-profile { animation-delay: .2s; }
+@keyframes wc-dialog-in { from { opacity: 0; transform: translateY(18px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes wc-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes wc-logo-in { from { opacity: 0; transform: scale(.4) rotate(-12deg); } to { opacity: 1; transform: none; } }
+@keyframes wc-pop { 0% { transform: scale(.6); } 100% { transform: scale(1); } }
+@keyframes wc-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+	.profile-dialog[open], .profile-dialog[open]::backdrop, .wc-head .wc-logo, .wc-card svg, .wc-gender .wc-card, .wc-more, .profile-dialog #profile-age, .profile-dialog .save-profile { animation: none !important; }
+}
