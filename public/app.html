@@ -6,6 +6,8 @@
     <meta name="theme-color" content="#eaf0fb">
     <meta name="description" content="Anonymous public and one-to-one chat on Strangely.">
     <title>Strangely — Anonymous Chat</title>
+    <!-- Google AdSense (sirf verification script; is chat page par ad unit nahi lagana) -->
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4380678160516264" crossorigin="anonymous"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
@@ -153,6 +155,28 @@
     </dialog>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
+    <!-- Audio call (Gmail users, one-to-one, dono ki consent se) -->
+    <script src="call.js"></script>
+    <script>
+    // Chat ke WebSocket ke messages call.js ko pahunchata hai. script.js mein koi badlav nahi chahiye.
+    (function () {
+        var Native = window.WebSocket;
+        if (!Native || !window.StrangelyCall) return;
+        window.WebSocket = class extends Native {
+            constructor(url, protocols) {
+                super(url, protocols);
+                var ws = this;
+                window.StrangelyCall.init({
+                    mount: ".header-actions",
+                    send: function (obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+                });
+                ws.addEventListener("message", function (event) {
+                    try { window.StrangelyCall.onMessage(JSON.parse(event.data)); } catch (error) { /* ignore */ }
+                });
+            }
+        };
+    })();
+    </script>
     <script src="script.js" defer></script>
     <script src="reels.js" defer></script>
     <script>
