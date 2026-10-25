@@ -173,7 +173,53 @@
             <p class="wc-terms">Adults 18+ only. Gender and age are self-reported and not verified. Your profile is visible to chat participants.</p>
         </form>
     </dialog>
-    <script src="welcome-card.js"></script>
+    <script>
+// Welcome card: gender cards aur niche ka #profile-gender select hamesha ek saath badalte hain.
+(function () {
+	var dialog = document.getElementById("profile-dialog");
+	var form = document.getElementById("profile-form");
+	var select = document.getElementById("profile-gender");
+	if (!dialog || !form || !select) return;
+	var buttons = form.querySelectorAll("[data-gender]");
+
+	// Cards ko select ki value ke hisaab se highlight karo
+	function sync() {
+		buttons.forEach(function (b) {
+			b.setAttribute("aria-pressed", b.dataset.gender === select.value ? "true" : "false");
+		});
+	}
+
+	// Card dabao -> select badal jaye
+	buttons.forEach(function (b) {
+		b.addEventListener("click", function () {
+			select.value = b.dataset.gender;
+			select.dispatchEvent(new Event("change", { bubbles: true }));
+			sync();
+		});
+	});
+
+	// Select se badlo -> cards badal jayein (agar select dikh raha ho)
+	select.addEventListener("change", sync);
+
+	// Edit profile par script.js select ki value set karke dialog kholta hai: tab bhi sync karo.
+	var open = dialog.showModal;
+	dialog.showModal = function () {
+		var result = open.apply(this, arguments);
+		sync();
+		return result;
+	};
+
+	// Gender chuna nahi to aage mat badho.
+	form.addEventListener("submit", function (event) {
+		if (select.value) return;
+		event.preventDefault();
+		event.stopImmediatePropagation();
+		if (typeof window.showToast === "function") window.showToast("Choose how you identify.");
+	}, true);
+
+	sync();
+})();
+</script>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="config.js"></script>
     <!-- Audio call (Gmail users, one-to-one, dono ki consent se) -->
