@@ -1,8 +1,8 @@
 // Admin-only traffic panel. index.html mein: <script src="admin-panel.js" defer></script>
 // Button sirf tab dikhta hai jab server confirm kare ki Gmail admin hai.
-// Token ke liye script.js mein ek line chahiye: window.getStrangelyToken = () => auth.currentUser?.getIdToken();
+// Token script.js ke window.strangelyAuth.getToken se aata hai. API URL config.js ke STRANGELY_WS_URL se nikalta hai.
 (() => {
-	const API = (window.STRANGELY_API || "https://YOUR-SERVER.onrender.com").replace(/\/+$/, "");
+	const API = (window.STRANGELY_API || (window.STRANGELY_WS_URL || "").replace(/^ws/i, "http").replace(/\/ws\/?$/, "") || location.origin).replace(/\/+$/, "");
 	const css = `.tp-btn{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:50;padding:9px 14px;border-radius:999px;border:0;background:#1f3a8a;color:#fff;font:600 13px system-ui,sans-serif;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25)}
 .tp-dlg{width:min(560px,94vw);max-height:86vh;border:0;border-radius:14px;padding:18px;font:14px/1.5 system-ui,sans-serif;color:#1b2320;background:#fff}
 .tp-dlg::backdrop{background:rgba(0,0,0,.45)}.tp-dlg h3{margin:0 0 4px;font-size:18px}.tp-dlg h4{margin:16px 0 6px;font-size:13px}
@@ -18,8 +18,7 @@
 
 	const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 	async function token() {
-		if (typeof window.getStrangelyToken === "function") return window.getStrangelyToken();
-		return window.firebase?.auth?.().currentUser?.getIdToken?.() || null;
+		return (await window.strangelyAuth?.getToken?.()) || null;
 	}
 	async function fetchStats(days) {
 		const t = await token();
@@ -68,8 +67,10 @@
 		btn.onclick = async () => open((await fetchStats(days)) || d);
 		document.body.appendChild(btn);
 	}
-	// Login kabhi bhi ho sakta hai: kuch der tak dobara check karte raho.
+	// Login kabhi bhi ho sakta hai: 10 minute tak har 5 second mein, aur tab par wapas aane par bhi check karo.
 	let tries = 0;
-	const timer = setInterval(() => { check(); if (btn || ++tries > 20) clearInterval(timer); }, 3000);
+	const timer = setInterval(() => { check(); if (btn || ++tries > 120) clearInterval(timer); }, 5000);
+	document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
+	window.addEventListener("focus", check);
 	check();
 })();
