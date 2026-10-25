@@ -6,6 +6,7 @@ import { randomUUID, createPublicKey, createVerify } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import { createReelsApi } from "./reels-api.js";
 import { createWallet } from "./wallet.js";
+import { createCallSignaling } from "./call-signaling.js";
 
 const publicDirectory = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 3000);
@@ -26,7 +27,7 @@ const contentTypes = {
 	".xml": "application/xml; charset=utf-8"
 };
 // Browser /favicon.ico maangta hai, use PNG icon se pura karte hain.
-const staticFiles = ["index.html", "app.html", "robots.txt", "sitemap.xml", "og-image.png", "script.js", "style.css", "config.js", "reels.js", "reels.css", "wallet-dashboard.js", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png"];
+const staticFiles = ["index.html", "app.html", "robots.txt", "sitemap.xml", "og-image.png", "script.js", "style.css", "config.js", "reels.js", "reels.css", "call.js", "wallet-dashboard.js", "favicon.svg", "favicon.png", "favicon-32.png", "apple-touch-icon.png"];
 
 function send(socket, message) {
 	if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
@@ -361,8 +362,8 @@ function connectGuests(first, second) {
 	second.matchId = matchId;
 	first.humanMatches += 1;
 	second.humanMatches += 1;
-	send(first, { type: "matched", peerName: second.guestName, peerUserId: second.userId, peerProfile: second.profile });
-	send(second, { type: "matched", peerName: first.guestName, peerUserId: first.userId, peerProfile: first.profile });
+	send(first, { type: "matched", peerName: second.guestName, peerUserId: second.userId, peerProfile: second.profile, peerGmail: Boolean(second.uid) });
+	send(second, { type: "matched", peerName: first.guestName, peerUserId: first.userId, peerProfile: first.profile, peerGmail: Boolean(first.uid) });
 }
 
 function queueGuest(socket) {
@@ -388,6 +389,7 @@ function queueGuest(socket) {
 
 function endPrivateChat(socket) {
 	socket.ai = null;
+	calls.onChatEnded(socket);
 	const peer = socket.peer;
 	socket.peer = null;
 	socket.matchId = null;
@@ -818,6 +820,7 @@ async function handleMessage(socket, payload) {
 
 	// Wallet (credits): get-wallet aur reel-watched yahin handle hote hain (wallet.js).
 	if (wallet.handle(socket, payload)) return;
+	if (calls.handle(socket, payload)) return;
 
 	// Browser mein Gmail sign-in pehle se hai par ye WebSocket anonymous tha: token se account jod do (credits ke liye).
 	if (payload.type === "link-account") {
@@ -909,7 +912,7 @@ async function handleMessage(socket, payload) {
 		}
 
 		socket.profile = { gender: profile.gender, age: profile.age, country: profile.country.trim() };
-		send(socket, { type: "profile-saved", profile: socket.profile });
+		send(socket, { type: "profile-saved", profile: socket.profile, gmail: Boolean(socket.uid) });
 		wallet.onProfile(socket, typeof payload.ref === "string" ? payload.ref : "");
 		broadcastActiveCount();
 		if (socket.peer) {
@@ -1025,6 +1028,7 @@ async function handleMessage(socket, payload) {
 
 const handleReelsApi = createReelsApi({ verifyToken: verifyFirebaseToken });
 const wallet = createWallet({ send, clients, endPrivateChat });
+const calls = createCallSignaling({ send, clients });
 
 const server = createServer(async (request, response) => {
 	let pathname;
