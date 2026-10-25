@@ -1064,11 +1064,8 @@ const server = createServer(async (request, response) => {
 		response.end("Bad request");
 		return;
 	}
-		}
 	// Traffic analytics (analytics.js)
 	if (pathname.startsWith("/api/") && (await handleAnalytics(request, response, pathname))) return;
-	// Reels APIs (reels-api.js): /api/reels/... aur /api/comments/...
-	if (pathname.startsWith("/api/") && (await handleReelsApi(request, response, pathname))) return;
 	// Reels APIs (reels-api.js): /api/reels/... aur /api/comments/...
 	if (pathname.startsWith("/api/") && (await handleReelsApi(request, response, pathname))) return;
 
