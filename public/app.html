@@ -217,6 +217,33 @@
 		if (typeof window.showToast === "function") window.showToast("Choose how you identify.");
 	}, true);
 
+	// Start chatting dabane ke baad One-to-one khule (Edit profile se kholne par mode nahi badlega).
+	var editing = false, goPrivate = false, goTimer;
+	var editBtn = document.getElementById("edit-profile");
+	if (editBtn) editBtn.addEventListener("click", function () { editing = true; }, true);
+	form.addEventListener("submit", function () {
+		if (editing || !form.checkValidity() || !select.value) return;
+		goPrivate = true;
+		clearTimeout(goTimer);
+		goTimer = setTimeout(function () { goPrivate = false; }, 5000);
+	});
+	dialog.addEventListener("close", function () {
+		editing = false;
+		if (!goPrivate) return;
+		goPrivate = false;
+		clearTimeout(goTimer);
+		var btn = document.querySelector('.mode-button[data-mode="private"]');
+		if (btn) btn.click();
+	});
+
+	// App kholte hi (aur refresh par bhi) pehle One-to-one screen khule, Public room nahi.
+	function openPrivate() {
+		var btn = document.querySelector('.mode-button[data-mode="private"]');
+		if (btn && !btn.classList.contains("active")) btn.click();
+	}
+	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", openPrivate);
+	else openPrivate();
+
 	sync();
 })();
 </script>
