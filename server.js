@@ -181,6 +181,23 @@ function rememberMessage(message, metadata) {
 	return message;
 }
 
+// Reply: sirf usi chat ke message ka reply ho sakta hai. Quote ka snapshot server banata hai (client par bharosa nahi).
+function resolveReply(socket, payload, scope) {
+	const id = typeof payload.replyTo === "string" ? payload.replyTo : "";
+	if (!id || id.length > 64) return null;
+	const record = messageRecords.get(id);
+	if (!record || record.scope !== scope) return null;
+	if (scope === "ai" && record.contextId !== socket.ai?.chatId) return null;
+	if (scope === "private" && record.contextId !== socket.matchId) return null;
+	const source = record.message;
+	return {
+		messageId: record.messageId,
+		userId: String(source.userId || ""),
+		name: String(source.name || "Guest").slice(0, 40),
+		text: String(source.text || "").slice(0, 120)
+	};
+}
+
 function personalizeMessage(message, userId) {
 	const record = message?.messageId ? messageRecords.get(message.messageId) : null;
 	return {
@@ -946,6 +963,8 @@ async function handleMessage(socket, payload) {
 		};
 
 		if (payload.type === "public-message") {
+			const publicReply = resolveReply(socket, payload, "public");
+			if (publicReply) message.replyTo = publicReply;
 			rememberMessage(message, { scope: "public", senderIp: socket.ip });
 			publicHistory.push(message);
 			while (publicHistory.length > 100) {
@@ -956,10 +975,14 @@ async function handleMessage(socket, payload) {
 				if (!client.blockedIps.has(socket.ip)) send(client, personalizeMessage(message, client.userId));
 			}
 		} else if (socket.ai) {
+			const aiReply = resolveReply(socket, payload, "ai");
+			if (aiReply) message.replyTo = aiReply;
 			rememberMessage(message, { scope: "ai", contextId: socket.ai.chatId, ownerId: socket.userId, senderIp: socket.ip });
 			send(socket, personalizeMessage(message, socket.userId));
 			await handleAiMessage(socket, text);
 		} else if (socket.peer && socket.matchId) {
+			const privateReply = resolveReply(socket, payload, "private");
+			if (privateReply) message.replyTo = privateReply;
 			rememberMessage(message, { scope: "private", contextId: socket.matchId, participantIds: [socket.userId, socket.peer.userId], senderIp: socket.ip });
 			send(socket.peer, personalizeMessage(message, socket.peer.userId));
 			send(socket, personalizeMessage(message, socket.userId));
